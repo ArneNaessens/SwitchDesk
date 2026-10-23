@@ -107,6 +107,8 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", route);
 
 async function route() {
+  // a dialog belongs to the page it was opened on
+  if (S.modalOpen) { $(".veil")?.remove(); S.modalOpen = false; }
   const h = location.hash.replace(/^#\/?/, "") || "dashboard";
   S.route = h.split("/").map(decodeURIComponent);
   if (S.route[0] !== "map") SDMap.stop();
@@ -970,7 +972,7 @@ async function renderSettings() {
     <section class="panel about" style="margin-top:18px"><div class="body">
       <a class="about-logo" onclick="openURL('https://clihero.com')" title="clihero.com"><img src="clihero-logo-white.png" alt="clihero.com"></a>
       <div><b>SwitchDesk ${esc(ver)}</b>
-        <div class="muted" style="font-size:13px;margin-top:2px">Built by Jaba Macharashvili · <a onclick="openURL('https://clihero.com')">clihero.com</a> · <a onclick="openURL('https://github.com/jaba0x/SwitchDesk')">GitHub</a></div>
+        <div class="muted" style="font-size:13px;margin-top:2px">Built by Jaba Macharashvili · <a onclick="openURL('https://clihero.com')">clihero.com</a> · <a onclick="openURL('https://jaba0x.github.io/SwitchDesk/')">Documentation</a> · <a onclick="openURL('https://github.com/jaba0x/SwitchDesk')">GitHub</a></div>
         <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button class="btn small" onclick="checkUpdate(this)">${ICON.refresh}Check for updates</button><span id="updres" class="muted" style="font-size:13px"></span></div></div>
     </div></section></div>`;
 }

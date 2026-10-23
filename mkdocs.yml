@@ -1,0 +1,96 @@
+site_name: SwitchDesk
+site_description: Desktop app for monitoring and managing Aruba switches over SSH
+site_author: Jaba Macharashvili
+site_url: https://jaba0x.github.io/SwitchDesk/
+repo_url: https://github.com/jaba0x/SwitchDesk
+repo_name: jaba0x/SwitchDesk
+edit_uri: edit/main/docs/
+copyright: Built by Jaba Macharashvili · <a href="https://clihero.com">clihero.com</a>
+
+docs_dir: docs
+exclude_docs: |
+  /banner.png
+  /dashboard.png
+  /switch.png
+  /map.png
+
+theme:
+  name: material
+  logo: logo.png
+  favicon: logo.png
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jaba0x/SwitchDesk
+    - icon: material/web
+      link: https://clihero.com
+    - icon: fontawesome/brands/x-twitter
+      link: https://x.com/jaba0x
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/in/jaba0x
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - def_list
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.keys
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Install: install.md
+      - First steps: getting-started.md
+  - Using SwitchDesk:
+      - Dashboard and problems: dashboard.md
+      - Switches: switches.md
+      - VLANs: vlans.md
+      - Network map: network-map.md
+      - Firmware updates: firmware.md
+      - Your data: data.md
+      - Settings: settings.md
+  - Help:
+      - Troubleshooting: troubleshooting.md
+      - Changelog: changelog.md
+  - Development: development.md
+  - About: about.md

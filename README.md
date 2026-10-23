@@ -15,6 +15,12 @@
 </p>
 
 <p align="center">
+  <a href="https://jaba0x.github.io/SwitchDesk/"><b>Documentation</b></a> ·
+  <a href="https://github.com/jaba0x/SwitchDesk/releases/latest"><b>Download</b></a> ·
+  <a href="https://github.com/jaba0x/SwitchDesk/discussions"><b>Discussions</b></a>
+</p>
+
+<p align="center">
   <img src="docs/dashboard.png" alt="SwitchDesk dashboard" width="900">
 </p>
 
@@ -140,6 +146,10 @@ Everything stays on your computer, in one folder.
 **Moving to another computer.** Settings → Data → Export writes a single `.sdbak` file. Passwords inside are re-encrypted with a passphrase you pick (Argon2id + AES-GCM), so the file is safe to carry around and opens on any machine. On the other computer, Import either adds the file's switches to the ones already there or replaces everything with the file's contents.
 
 SSH host keys are pinned on first connect. If a switch later presents a different key, SwitchDesk stops connecting to it until you confirm on the switch page.
+
+## Documentation
+
+The full guide is at **[jaba0x.github.io/SwitchDesk](https://jaba0x.github.io/SwitchDesk/)**: install, first steps, every screen, firmware updates, moving your data, and troubleshooting. It's built with MkDocs from the `docs/` folder and published on every push.
 
 ## Development
 

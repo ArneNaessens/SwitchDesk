@@ -1,0 +1,30 @@
+/* SwitchDesk colors: rack-steel slate with a soft blue accent */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #1b212b;
+  --md-default-fg-color: #e4e8ef;
+  --md-default-fg-color--light: #a3acbb;
+  --md-code-bg-color: #161b23;
+  --md-primary-fg-color: #171c25;
+  --md-primary-bg-color: #e4e8ef;
+  --md-accent-fg-color: #8fb3ff;
+  --md-typeset-a-color: #8fb3ff;
+  --md-footer-bg-color: #171c25;
+  --md-footer-bg-color--dark: #12161d;
+}
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #1b212b;
+  --md-primary-bg-color: #ffffff;
+  --md-accent-fg-color: #3b5b97;
+  --md-typeset-a-color: #3b5b97;
+}
+.md-typeset img.shot { border-radius: 8px; border: 1px solid rgba(128, 140, 160, .25); }
+.md-typeset .grid-shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.md-header__button.md-logo img { height: 1.6rem; }
+.md-typeset img.author-logo { width: 240px; max-width: 100%; }
+
+/* buttons that read well on both schemes */
+.md-typeset .md-button { border-radius: 6px; }
+[data-md-color-scheme="slate"] .md-typeset .md-button { color: #e4e8ef; border-color: #46516a; }
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary { background: #3b5b97; border-color: #4a6db0; color: #fff; }
+[data-md-color-scheme="slate"] .md-typeset .md-button:hover { background: #4569a8; border-color: #4569a8; color: #fff; }
+[data-md-color-scheme="default"] .md-typeset .md-button--primary { background: #3b5b97; border-color: #3b5b97; color: #fff; }

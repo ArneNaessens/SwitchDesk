@@ -33,7 +33,7 @@
         const run = s.sw && /^[A-Z]{2}\./.test(s.sw) ? s.sw : "";
         const avail = { "WC.16.11.0015": "WC.16.11.0021", "FL.10.13.1000": "FL.10.14.0001" }[run] || "";
         return { supported: s.fam !== "Instant On", running: run || s.sw, available: avail, image: avail ? avail.replace(/\./g, "_") + ".swi" : "", staged: s.id === "acc2",
-          banks: { known: true, primary: run, secondary: s.id === "acc2" ? avail : "WC.16.10.0012", running: "primary", default: s.id === "acc2" ? "secondary" : "primary" },
+          banks: { known: true, primary: run, secondary: s.id === "acc2" ? avail : run.startsWith("FL") ? "FL.10.12.1010" : run.startsWith("PL") ? "PL.10.12.1010" : run.startsWith("YA") ? "YA.16.10.0019" : "WC.16.10.0012", running: "primary", default: s.id === "acc2" ? "secondary" : "primary" },
           job: s.id === "acc1" ? { id: "j1", state: "running", progress: 0.42, step: "Copying WC_16_11_0021.swi to the secondary bank from 10.10.1.50", from: "WC.16.11.0015", to: "WC.16.11.0021" } : null };
       })(),
     };

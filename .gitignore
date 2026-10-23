@@ -4,3 +4,4 @@ build/windows/
 dist-zip/
 *.exe
 .DS_Store
+site/
