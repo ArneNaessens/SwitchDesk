@@ -31,6 +31,8 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  chip: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
 };
 
@@ -79,6 +81,7 @@ function leds(ports, stp, big) {
 function renderSide() {
   const r = S.route[0] || "dashboard";
   const crit = S.dash?.critical || 0;
+  const fwCount = (S.dash?.switches || []).filter((v) => !v.disabled && v.firmware?.available && !v.firmware?.staged).length;
   const item = (key, icon, label, extra = "") =>
     `<button class="nav${r === key || (key === "switches" && r === "switch") ? " on" : ""}" data-go="#/${key}">${ICON[icon]}<span>${label}</span>${extra}</button>`;
   $("#side").innerHTML = `
@@ -87,6 +90,7 @@ function renderSide() {
     ${item("switches", "list", "Switches")}
     ${item("map", "map", "Network map")}
     ${item("vlans", "vlan", "VLANs")}
+    ${item("firmware", "chip", "Firmware", fwCount ? `<span class="count info">${fwCount}</span>` : "")}
     ${item("settings", "gear", "Settings")}
     <div class="side-foot">${S.dash ? `${S.dash.online} of ${S.dash.total} online` : ""}${S.dash?.collecting ? `<br>Collecting from ${plural(S.dash.collecting, "switch").replace("switchs", "switches")}` : ""}</div>`;
 }
@@ -113,6 +117,7 @@ async function route() {
   } else if (page === "switches") renderSwitches();
   else if (page === "map") renderMap();
   else if (page === "vlans") renderVLANs();
+  else if (page === "firmware") renderFirmware();
   else if (page === "settings") renderSettings();
   else renderDashboard();
 }
@@ -127,6 +132,7 @@ async function refreshData() {
   if (page === "switch" && ["overview", "stp", "ports", "neighbors", "logs"].includes(S.tab)) loadDetail(S.route[1], true);
   if (page === "switch" && S.detail) updateDetailHead();
   if (page === "map") SDMap.reload();
+  if (page === "firmware") renderFirmware(true);
 }
 
 // ---------- dashboard ----------
@@ -227,23 +233,24 @@ function renderSwitches(soft) {
   const allOn = rows.length > 0 && rows.every((v) => S.sel.has(v.id));
   const table = `<table class="swlist"><thead><tr>
       <th class="cb nogo"><input type="checkbox" title="Select all shown" ${allOn ? "checked" : ""} onchange="selectAll(this.checked)"></th>
-      <th></th><th>Name</th><th>Address</th><th>Site</th><th>Type</th><th>Model</th><th>Software</th><th>Uptime</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">Ports up</th><th>STP</th><th>Problems</th><th>Collected</th><th></th></tr></thead><tbody>
+      <th></th><th>Name</th><th>Address</th><th>Site</th><th>Model</th><th>Software</th><th>Firmware</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">Ports up</th><th>STP</th><th>Problems</th><th>Collected</th><th></th></tr></thead><tbody>
     ${rows.map((v) => {
       const s = v.summary || {};
       return `<tr class="click${v.disabled ? " off" : ""}${S.sel.has(v.id) ? " picked" : ""}" data-go="#/switch/${v.id}">
       <td class="cb nogo"><input type="checkbox" ${S.sel.has(v.id) ? "checked" : ""} onchange="toggleSel('${v.id}', this.checked)"></td>
       <td>${v.disabled ? `<span class="dot" title="Disabled"></span>` : statusDot(v)}</td>
       <td>${esc(v.name || s.hostname || "")}${v.disabled ? ` <span class="tag">disabled</span>` : ""}</td><td class="mono">${esc(v.host)}</td><td>${esc(v.site)}</td>
-      <td>${esc(s.family || "")}</td><td>${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${esc(s.uptime || "")}</td>
+      <td title="${esc(s.family || "")}">${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${fwCell(v)}</td>
       <td class="num">${s.cpu >= 0 && s.cpu !== undefined ? s.cpu + "%" : ""}</td><td class="num">${s.memory >= 0 && s.memory !== undefined ? s.memory + "%" : ""}</td>
       <td class="num">${s.portsTotal ? `${s.portsUp}/${s.portsTotal}` : ""}</td><td>${esc(s.stpRole || "")}</td>
       <td>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td>
-      <td class="acts nogo"><button class="ib" title="${v.disabled ? "Enable" : "Disable"}" onclick="setDisabled(['${v.id}'], ${!v.disabled})">${v.disabled ? ICON.play : ICON.pause}</button><button class="ib danger" title="Delete" onclick="deleteSwitches(['${v.id}'])">${ICON.trash}</button></td></tr>`;
+      <td class="acts nogo">${canUpdate(v) ? `<button class="ib" title="Update firmware to ${esc(v.firmware.available)}" onclick="openUpgradeDialog(['${v.id}'])">${ICON.up}</button>` : ""}<button class="ib" title="${v.disabled ? "Enable" : "Disable"}" onclick="setDisabled(['${v.id}'], ${!v.disabled})">${v.disabled ? ICON.play : ICON.pause}</button><button class="ib danger" title="Delete" onclick="deleteSwitches(['${v.id}'])">${ICON.trash}</button></td></tr>`;
     }).join("")}</tbody></table>
     ${rows.length ? "" : `<div class="empty">No switches match “${esc(S.query)}”. <a onclick="clearSearch()">Clear search</a></div>`}`;
   const n = S.sel.size;
   const bar = n ? `<div class="selbar"><b>${n} selected</b><span class="grow"></span>
       <button class="btn small" onclick="refreshSel()">${ICON.refresh}Collect now</button>
+      <button class="btn small" onclick="openUpgradeDialog([...S.sel])">${ICON.up}Update firmware</button>
       <button class="btn small" onclick="setDisabled([...S.sel], true)">${ICON.pause}Disable</button>
       <button class="btn small" onclick="setDisabled([...S.sel], false)">${ICON.play}Enable</button>
       <button class="btn small danger" onclick="deleteSwitches([...S.sel])">${ICON.trash}Delete</button>
@@ -434,6 +441,7 @@ function tabOverview(d, snap) {
       ${f.location ? `<dt>Location</dt><dd>${esc(f.location)}</dd>` : ""}${f.contact ? `<dt>Contact</dt><dd>${esc(f.contact)}</dd>` : ""}
       ${f.configSaved !== undefined && f.configSaved !== null ? `<dt>Startup config</dt><dd>${f.configSaved ? `<span class="ok">Saved</span>` : `<span class="warnc">Unsaved changes</span>`}</dd>` : ""}
     </dl></div></section>
+    ${firmwareCard(d)}
     <section class="panel"><h2>Management access</h2><div class="body">
       ${checkRow(sec.sshEnabled, "SSH enabled", sec.sshPort ? "port " + sec.sshPort + (sec.sshVersion ? ", version " + sec.sshVersion : "") : "")}
       ${checkRow(!sec.telnetEnabled, sec.telnetEnabled ? "Telnet is enabled" : "Telnet disabled")}
@@ -933,7 +941,14 @@ async function renderSettings() {
         <label class="f"><span>Config copies kept per switch</span><input type="number" id="kb" min="1" value="${set.keepBackups}"></label></div>
       <div class="row"><label class="f"><span>Warn above CPU %</span><input type="number" id="cw" value="${set.cpuWarn}"></label>
         <label class="f"><span>Warn above memory %</span><input type="number" id="mw" value="${set.memWarn}"></label></div>
-      <label class="check" style="margin-bottom:14px"><input type="checkbox" id="is" ${set.ignoreSnmp ? "checked" : ""}> Don't flag default SNMP communities</label>
+      <label class="check" style="margin-bottom:18px"><input type="checkbox" id="is" ${set.ignoreSnmp ? "checked" : ""}> Don't flag default SNMP communities</label>
+      <div style="border-top:1px solid var(--line-soft);padding-top:14px;margin-bottom:16px"><b style="font-weight:600">Automatic firmware updates</b>
+        <p class="faint" style="font-size:12.5px;margin:4px 0 10px">Uses the newest image in the firmware library for each switch. SwitchDesk has to be running for this.</p>
+        <label class="check" style="margin-bottom:6px"><input type="radio" name="fa" value="off" ${set.firmwareAuto === "off" ? "checked" : ""}> Off</label>
+        <label class="check" style="margin-bottom:6px"><input type="radio" name="fa" value="stage" ${set.firmwareAuto === "stage" ? "checked" : ""}> Copy new firmware to the spare bank, but don't reboot</label>
+        <label class="check" style="margin-bottom:10px"><input type="radio" name="fa" value="install" ${set.firmwareAuto === "install" ? "checked" : ""}> Install: copy any time, reboot one switch at a time during the maintenance window</label>
+        <div class="row" style="max-width:360px"><label class="f"><span>Window starts</span><input type="text" id="ws" class="mono" value="${esc(set.windowStart)}" placeholder="02:00"></label>
+          <label class="f"><span>Window ends</span><input type="text" id="we" class="mono" value="${esc(set.windowEnd)}" placeholder="05:00"></label></div></div>
       <button class="btn primary" onclick="saveSettings()">Save settings</button></div></section>
     <section class="panel" style="margin-top:18px"><h2>Data</h2><div class="body">
       <label class="f"><span>Data folder${df.custom ? "" : ' <span class="faint">(default)</span>'}</span>
@@ -1047,7 +1062,7 @@ async function openImport() {
 
 async function saveSettings() {
   try {
-    await call("SaveSettings", { pingInterval: +$("#pi").value, collectInterval: +$("#ci").value, parallel: +$("#pa").value, keepBackups: +$("#kb").value, cpuWarn: +$("#cw").value, memWarn: +$("#mw").value, ignoreSnmp: $("#is").checked });
+    await call("SaveSettings", { pingInterval: +$("#pi").value, collectInterval: +$("#ci").value, parallel: +$("#pa").value, keepBackups: +$("#kb").value, cpuWarn: +$("#cw").value, memWarn: +$("#mw").value, ignoreSnmp: $("#is").checked, firmwareAuto: $("input[name=fa]:checked").value, windowStart: $("#ws").value.trim(), windowEnd: $("#we").value.trim() });
     S.settings = await call("GetSettings");
     toast("Settings saved");
   } catch (e) { toast(e.message, true); }
@@ -1086,6 +1101,7 @@ async function boot() {
   S.settings = await call("GetSettings");
   S.dash = await call("GetDashboard");
   window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
+  window.runtime?.EventsOn?.("firmware-download", (p) => { if (FW.dl) { FW.dl = p; drawDl(); } });
   const notice = await call("StartupNotice").catch(() => "");
   if (notice) toast(notice, true);
   // keep relative times fresh even when nothing changes

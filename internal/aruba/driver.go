@@ -25,6 +25,7 @@ func commandsFor(f Family) []command {
 		return []command{
 			{key: "system", cmd: "show system"},
 			{key: "version", cmd: "show version"},
+			{key: "images", cmd: "show images"},
 			{key: "stp", cmd: "show spanning-tree"},
 			{key: "ssh", cmd: "show ssh server all-vrfs", alt: []string{"show ssh server"}},
 			{key: "vlans", cmd: "show vlan"},
@@ -52,6 +53,7 @@ func commandsFor(f Family) []command {
 		return []command{
 			{key: "system", cmd: "show system"},
 			{key: "version", cmd: "show version"},
+			{key: "images", cmd: "show flash"},
 			{key: "stp", cmd: "show spanning-tree"},
 			{key: "ssh", cmd: "show ip ssh"},
 			{key: "vlans", cmd: "show vlans"},
@@ -156,6 +158,7 @@ func parseInto(s *Snapshot) {
 	}
 
 	s.STP = ParseSTP(raw["stp"])
+	s.Banks = ParseBanks(s.Family, raw["images"], raw["version"])
 
 	var cfgVLANs []VLAN
 	var cfgSTP bool

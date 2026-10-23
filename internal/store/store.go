@@ -49,10 +49,15 @@ type Settings struct {
 	CPUWarn         int  `json:"cpuWarn"`
 	MemWarn         int  `json:"memWarn"`
 	IgnoreSNMP      bool `json:"ignoreSnmp"`
+	// Firmware: "off", "stage" (copy to the spare bank only) or "install"
+	// (copy, then reboot inside the maintenance window).
+	FirmwareAuto string `json:"firmwareAuto"`
+	WindowStart  string `json:"windowStart"` // "02:00"
+	WindowEnd    string `json:"windowEnd"`   // "05:00"
 }
 
 func DefaultSettings() Settings {
-	return Settings{PingInterval: 30, CollectInterval: 15, Parallel: 4, KeepBackups: 20, CPUWarn: 80, MemWarn: 90}
+	return Settings{PingInterval: 30, CollectInterval: 15, Parallel: 4, KeepBackups: 20, CPUWarn: 80, MemWarn: 90, FirmwareAuto: "off", WindowStart: "02:00", WindowEnd: "05:00"}
 }
 
 type Point struct {
@@ -131,6 +136,9 @@ func Open(dir string) (*Store, error) {
 	}
 	if s.d.Settings.MemWarn == 0 {
 		s.d.Settings.MemWarn = def.MemWarn
+	}
+	if s.d.Settings.FirmwareAuto == "" {
+		s.d.Settings.FirmwareAuto, s.d.Settings.WindowStart, s.d.Settings.WindowEnd = def.FirmwareAuto, def.WindowStart, def.WindowEnd
 	}
 	return s, nil
 }
@@ -415,6 +423,16 @@ func (s *Store) SaveSettings(v Settings) error {
 	}
 	if v.KeepBackups < 1 {
 		v.KeepBackups = 1
+	}
+	switch v.FirmwareAuto {
+	case "off", "stage", "install":
+	default:
+		v.FirmwareAuto = "off"
+	}
+	for _, t := range []*string{&v.WindowStart, &v.WindowEnd} {
+		if _, err := time.Parse("15:04", *t); err != nil {
+			return fmt.Errorf("maintenance window times look like 02:00")
+		}
 	}
 	s.d.Settings = v
 	return s.saveLocked()

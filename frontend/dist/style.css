@@ -284,3 +284,16 @@ dl.kv dd { margin: 0; user-select: text; word-break: break-word; }
 .swlist td.acts, .swlist th:last-child { position: sticky; right: 0; background: var(--panel); box-shadow: -8px 0 8px -8px rgba(0,0,0,.4); }
 .swlist tr.picked td.acts { background: #262f3f; }
 .swlist tr.click:hover td.acts { background: #262e3b; }
+
+/* firmware */
+.fwchip { display: inline-block; font-size: 12px; padding: 0 7px; border-radius: 10px; font-family: var(--mono); white-space: nowrap; }
+.fwchip.avail { background: rgba(110,168,254,.14); color: #a9cbff; }
+.fwchip.staged { background: rgba(232,176,74,.16); color: #f3c97a; }
+.fwchip.busy { background: rgba(110,168,254,.22); color: #cfe0ff; font-family: var(--sans); }
+.fwchip.failed { background: rgba(240,97,109,.16); color: #ff9aa2; font-family: var(--sans); }
+.nav .count.info { background: #4f74b8; color: #fff; }
+.job { padding: 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.job:last-child { border-bottom: 0; }
+.jobline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.jobstep { font-size: 13px; margin-top: 4px; user-select: text; }
+.sev.okchip { background: rgba(76,195,138,.15); color: #9fe3c0; }

@@ -134,4 +134,5 @@ type Snapshot struct {
 	CollectedAt   time.Time         `json:"collectedAt"`
 	Duration      string            `json:"duration"`
 	Errors        []string          `json:"errors"`
+	Banks         Banks             `json:"banks"`
 }

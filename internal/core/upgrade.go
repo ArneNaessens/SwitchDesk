@@ -1,0 +1,624 @@
+package core
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jaba0x/switchdesk/internal/aruba"
+	"github.com/jaba0x/switchdesk/internal/firmware"
+	"github.com/jaba0x/switchdesk/internal/sshx"
+	"github.com/jaba0x/switchdesk/internal/store"
+)
+
+// Job is one firmware update of one switch.
+type Job struct {
+	ID         string    `json:"id"`
+	SwitchID   string    `json:"switchId"`
+	SwitchName string    `json:"switchName"`
+	Image      string    `json:"image"`
+	From       string    `json:"from"`
+	To         string    `json:"to"`
+	Reboot     bool      `json:"reboot"`
+	Auto       bool      `json:"auto"`
+	State      string    `json:"state"` // queued, running, staged, done, failed, cancelled
+	Step       string    `json:"step"`
+	Progress   float64   `json:"progress"` // 0..1 while copying
+	Error      string    `json:"error"`
+	CreatedAt  time.Time `json:"createdAt"`
+	EndedAt    time.Time `json:"endedAt"`
+	Log        []string  `json:"log"`
+}
+
+func (j *Job) active() bool { return j.State == "queued" || j.State == "running" }
+
+type upgrader struct {
+	mu    sync.Mutex
+	jobs  []*Job
+	tftp  *firmware.TFTP
+	users int
+	queue chan *Job
+}
+
+// FirmwareInfo is what the UI shows per switch.
+type FirmwareInfo struct {
+	Running   string      `json:"running"`
+	Banks     aruba.Banks `json:"banks"`
+	Available string      `json:"available"`
+	Image     string      `json:"image"`
+	Staged    bool        `json:"staged"` // newest image already sits in the spare bank as boot default
+	Supported bool        `json:"supported"`
+	Job       *Job        `json:"job,omitempty"`
+}
+
+// ---------- availability ----------
+
+func (m *Manager) firmwareFor(sw store.Switch, snap *aruba.Snapshot) FirmwareInfo {
+	fi := FirmwareInfo{}
+	if snap == nil || snap.CollectedAt.IsZero() {
+		return fi
+	}
+	fi.Running = snap.Facts.Software
+	fi.Banks = snap.Banks
+	fi.Supported = snap.Family == aruba.FamilyAOSS || snap.Family == aruba.FamilyAOSCX
+	cur, ok := firmware.ParseVersion(snap.Facts.Software)
+	if !ok || m.lib == nil {
+		return fi
+	}
+	fi.Running = cur.Text
+	if img, ok := m.lib.Latest(cur.Branch); ok && img.Version.Newer(cur) {
+		fi.Available = img.Version.Text
+		fi.Image = img.File
+		spare := snap.Banks.Spare()
+		fi.Staged = snap.Banks.Version(spare) == img.Version.Text && snap.Banks.Default == spare
+	}
+	return fi
+}
+
+// ---------- jobs ----------
+
+func (m *Manager) Jobs() []Job {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	out := make([]Job, 0, len(m.up.jobs))
+	for i := len(m.up.jobs) - 1; i >= 0; i-- {
+		j := *m.up.jobs[i]
+		j.Log = append([]string(nil), j.Log...)
+		out = append(out, j)
+	}
+	return out
+}
+
+func (m *Manager) jobFor(switchID string) *Job {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	for i := len(m.up.jobs) - 1; i >= 0; i-- {
+		if m.up.jobs[i].SwitchID == switchID {
+			j := *m.up.jobs[i]
+			return &j
+		}
+	}
+	return nil
+}
+
+func (m *Manager) update(j *Job, fn func(j *Job)) {
+	m.up.mu.Lock()
+	fn(j)
+	m.up.mu.Unlock()
+	m.changed()
+}
+
+func (m *Manager) logf(j *Job, format string, a ...any) {
+	m.update(j, func(j *Job) {
+		j.Log = append(j.Log, time.Now().Format("15:04:05")+"  "+fmt.Sprintf(format, a...))
+		if len(j.Log) > 200 {
+			j.Log = j.Log[len(j.Log)-200:]
+		}
+	})
+}
+
+// StartUpgrade queues updates. image "" means the newest matching image in the library.
+func (m *Manager) StartUpgrade(ids []string, image string, reboot, auto bool) ([]Job, error) {
+	var out []Job
+	var errs []string
+	for _, id := range ids {
+		j, err := m.newJob(id, image, reboot, auto)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		out = append(out, *j)
+	}
+	if len(out) == 0 && len(errs) > 0 {
+		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return out, nil
+}
+
+func (m *Manager) newJob(id, image string, reboot, auto bool) (*Job, error) {
+	if m.lib == nil {
+		return nil, errors.New("the firmware library folder couldn't be opened")
+	}
+	sw, ok := m.st.Switch(id)
+	if !ok {
+		return nil, errors.New("switch not found")
+	}
+	name := sw.Host
+	m.mu.Lock()
+	snap := m.snaps[id]
+	m.mu.Unlock()
+	if snap != nil {
+		name = displayName(sw, snap)
+	}
+	if sw.Disabled {
+		return nil, fmt.Errorf("%s is disabled", name)
+	}
+	if snap == nil || snap.CollectedAt.IsZero() {
+		return nil, fmt.Errorf("%s hasn't been read yet", name)
+	}
+	if snap.Family != aruba.FamilyAOSS && snap.Family != aruba.FamilyAOSCX {
+		return nil, fmt.Errorf("%s: %s firmware is updated from the Instant On portal", name, snap.Family.Label())
+	}
+	cur, ok := firmware.ParseVersion(snap.Facts.Software)
+	if !ok {
+		return nil, fmt.Errorf("%s: can't read the running version", name)
+	}
+	var img firmware.Image
+	if image == "" {
+		img, ok = m.lib.Latest(cur.Branch)
+		if !ok || !img.Version.Newer(cur) {
+			return nil, fmt.Errorf("%s: no newer %s image in the library", name, cur.Branch)
+		}
+	} else {
+		img, ok = m.lib.Get(image)
+		if !ok {
+			return nil, fmt.Errorf("image %s isn't in the library", image)
+		}
+		if img.Version.Branch != cur.Branch {
+			return nil, fmt.Errorf("%s runs %s; %s is for %s switches", name, cur.Text, img.File, img.Version.Branch)
+		}
+	}
+	m.up.mu.Lock()
+	for _, j := range m.up.jobs {
+		if j.SwitchID == id && j.active() {
+			m.up.mu.Unlock()
+			return nil, fmt.Errorf("%s already has an update in progress", name)
+		}
+	}
+	j := &Job{ID: store.NewID(), SwitchID: id, SwitchName: name, Image: img.File, From: cur.Text, To: img.Version.Text,
+		Reboot: reboot, Auto: auto, State: "queued", Step: "Waiting to start", CreatedAt: time.Now()}
+	m.up.jobs = append(m.up.jobs, j)
+	if len(m.up.jobs) > 200 {
+		m.up.jobs = m.up.jobs[len(m.up.jobs)-200:]
+	}
+	m.up.mu.Unlock()
+	m.changed()
+	select {
+	case m.up.queue <- j:
+	default:
+		m.update(j, func(j *Job) { j.State, j.Error = "failed", "too many updates queued" })
+	}
+	return j, nil
+}
+
+func (m *Manager) CancelJob(id string) error {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	for _, j := range m.up.jobs {
+		if j.ID == id {
+			if j.State != "queued" {
+				return errors.New("only updates that haven't started can be cancelled")
+			}
+			j.State, j.Step, j.EndedAt = "cancelled", "Cancelled", time.Now()
+			go m.changed()
+			return nil
+		}
+	}
+	return errors.New("update not found")
+}
+
+func (m *Manager) ClearFinishedJobs() {
+	m.up.mu.Lock()
+	keep := m.up.jobs[:0]
+	for _, j := range m.up.jobs {
+		if j.active() {
+			keep = append(keep, j)
+		}
+	}
+	m.up.jobs = keep
+	m.up.mu.Unlock()
+	m.changed()
+}
+
+// jobWorker runs updates. Two at a time at most, and only one that reboots,
+// so the network is never missing more than one switch.
+func (m *Manager) jobWorker(rebootLock *sync.Mutex, slot chan struct{}) {
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case j := <-m.up.queue:
+			m.up.mu.Lock()
+			cancelled := j.State == "cancelled"
+			m.up.mu.Unlock()
+			if cancelled {
+				continue
+			}
+			slot <- struct{}{}
+			if j.Reboot {
+				rebootLock.Lock()
+			}
+			m.runJob(j)
+			if j.Reboot {
+				rebootLock.Unlock()
+			}
+			<-slot
+		}
+	}
+}
+
+func (m *Manager) fail(j *Job, err error) {
+	m.logf(j, "Failed: %v", err)
+	m.update(j, func(j *Job) { j.State, j.Error, j.Step, j.EndedAt = "failed", err.Error(), "Failed", time.Now() })
+}
+
+func (m *Manager) step(j *Job, s string) {
+	m.logf(j, "%s", s)
+	m.update(j, func(j *Job) { j.Step = s })
+}
+
+// Timings for the reboot wait; tests shorten them.
+var (
+	tftpAddr    = ":69"
+	pollDown    = 5 * time.Second
+	pollUp      = 10 * time.Second
+	settleAfter = 45 * time.Second
+)
+
+// tftpAcquire starts the shared TFTP server if needed.
+func (m *Manager) tftpAcquire() error {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	if m.up.tftp == nil {
+		srv, err := firmware.StartTFTP(tftpAddr, m.offer)
+		if err != nil {
+			return err
+		}
+		srv.Progress = m.tftpProgress
+		m.up.tftp = srv
+	}
+	m.up.users++
+	return nil
+}
+
+func (m *Manager) tftpRelease() {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	m.up.users--
+	if m.up.users <= 0 && m.up.tftp != nil {
+		m.up.tftp.Close()
+		m.up.tftp, m.up.users = nil, 0
+	}
+}
+
+// offer only serves images that a running job is copying.
+func (m *Manager) offer(name string) (string, bool) {
+	m.up.mu.Lock()
+	wanted := false
+	for _, j := range m.up.jobs {
+		if j.State == "running" && j.Image == name {
+			wanted = true
+		}
+	}
+	m.up.mu.Unlock()
+	if !wanted {
+		return "", false
+	}
+	p, err := m.lib.Path(name)
+	return p, err == nil
+}
+
+func (m *Manager) tftpProgress(remote, name string, sent, total int64) {
+	if total <= 0 {
+		return
+	}
+	m.up.mu.Lock()
+	var match []*Job
+	for _, j := range m.up.jobs {
+		if j.State == "running" && j.Image == name {
+			match = append(match, j)
+		}
+	}
+	m.up.mu.Unlock()
+	if len(match) == 0 {
+		return
+	}
+	target := match[0]
+	if len(match) > 1 {
+		for _, j := range match {
+			if sw, ok := m.st.Switch(j.SwitchID); ok && sw.Host == remote {
+				target = j
+			}
+		}
+	}
+	m.update(target, func(j *Job) { j.Progress = float64(sent) / float64(total) })
+}
+
+func (m *Manager) runJob(j *Job) {
+	m.update(j, func(j *Job) { j.State = "running" })
+	if j.Auto && j.Reboot {
+		set := m.st.Settings()
+		if !inWindow(time.Now(), set.WindowStart, set.WindowEnd) {
+			// queued too late: stage now, the next window does the reboot
+			m.update(j, func(j *Job) { j.Reboot = false })
+			m.logf(j, "Maintenance window has ended; copying only, the reboot waits for the next window")
+		}
+	}
+	sw, ok := m.st.Switch(j.SwitchID)
+	if !ok {
+		m.fail(j, errors.New("switch was removed"))
+		return
+	}
+	if err := m.tftpAcquire(); err != nil {
+		m.fail(j, err)
+		return
+	}
+	defer m.tftpRelease()
+
+	local, err := firmware.LocalIPFor(sw.Host)
+	if err != nil {
+		m.fail(j, fmt.Errorf("no route to %s: %v", sw.Host, err))
+		return
+	}
+
+	var spare string
+	var fam aruba.Family
+	err = m.withSession(j.SwitchID, 50*time.Minute, func(ctx context.Context, s *sshx.Session, f aruba.Family) error {
+		fam = f
+		m.step(j, "Reading firmware banks")
+		banks, err := readBanks(ctx, s, f)
+		if err != nil {
+			return err
+		}
+		spare = banks.Spare()
+		m.logf(j, "Primary %s, secondary %s, running from %s", orDash(banks.Primary), orDash(banks.Secondary), orDash(banks.Running))
+		if banks.Version(spare) == j.To {
+			m.step(j, fmt.Sprintf("%s is already in the %s bank, skipping the copy", j.To, spare))
+		} else {
+			vrf := m.vrfFor(sw, f)
+			m.step(j, fmt.Sprintf("Copying %s to the %s bank from %s", j.Image, spare, local))
+			out, err := aruba.CopyImage(ctx, s, f, local, j.Image, spare, vrf)
+			if out != "" {
+				m.logf(j, "%s", lastLines(out, 4))
+			}
+			if err != nil {
+				return err
+			}
+			m.update(j, func(j *Job) { j.Progress = 1 })
+			banks, err = readBanks(ctx, s, f)
+			if err != nil {
+				return err
+			}
+			if banks.Version(spare) != j.To {
+				return fmt.Errorf("after the copy the %s bank holds %q, not %s", spare, banks.Version(spare), j.To)
+			}
+			m.step(j, fmt.Sprintf("Verified %s in the %s bank", j.To, spare))
+		}
+		m.step(j, "Setting "+spare+" as the boot bank")
+		if err := aruba.SetDefaultBank(ctx, s, f, spare); err != nil {
+			return err
+		}
+		if j.Reboot {
+			m.step(j, "Saving config and rebooting from "+spare)
+			return aruba.Reboot(ctx, s, f, spare)
+		}
+		return nil
+	})
+	if err != nil {
+		m.fail(j, err)
+		return
+	}
+	go m.Enqueue(j.SwitchID) // refresh banks shown in the UI
+	if !j.Reboot {
+		m.update(j, func(j *Job) {
+			j.State, j.Step, j.EndedAt = "staged", fmt.Sprintf("Ready: %s boots on the next restart", j.To), time.Now()
+		})
+		return
+	}
+
+	m.step(j, "Waiting for the switch to go down and come back")
+	if err := m.waitBack(sw, fam); err != nil {
+		m.fail(j, err)
+		return
+	}
+	m.step(j, "Back online, checking the version")
+	m.collect(j.SwitchID)
+	m.mu.Lock()
+	snap := m.snaps[j.SwitchID]
+	m.mu.Unlock()
+	got := ""
+	if snap != nil {
+		if v, ok := firmware.ParseVersion(snap.Facts.Software); ok {
+			got = v.Text
+		}
+	}
+	if got != j.To {
+		m.fail(j, fmt.Errorf("the switch came back running %q instead of %s", got, j.To))
+		return
+	}
+	m.logf(j, "Running %s", got)
+	m.update(j, func(j *Job) { j.State, j.Step, j.EndedAt = "done", "Updated to "+got, time.Now() })
+}
+
+func readBanks(ctx context.Context, s *sshx.Session, f aruba.Family) (aruba.Banks, error) {
+	images, err := s.Run(ctx, aruba.ImagesCommand(f), 60*time.Second)
+	if err != nil {
+		return aruba.Banks{}, err
+	}
+	ver, _ := s.Run(ctx, "show version", 30*time.Second)
+	b := aruba.ParseBanks(f, images, ver)
+	if !b.Known {
+		return b, errors.New("couldn't read the firmware banks from the switch")
+	}
+	return b, nil
+}
+
+// vrfFor picks the AOS-CX VRF that reaches this computer: mgmt when the
+// address we manage the switch on belongs to the mgmt port.
+func (m *Manager) vrfFor(sw store.Switch, f aruba.Family) string {
+	if f != aruba.FamilyAOSCX {
+		return ""
+	}
+	m.mu.Lock()
+	snap := m.snaps[sw.ID]
+	m.mu.Unlock()
+	if snap == nil {
+		return "default"
+	}
+	in := false
+	for _, l := range strings.Split(snap.RunningConfig, "\n") {
+		t := strings.TrimSpace(l)
+		if !strings.HasPrefix(l, " ") && !strings.HasPrefix(l, "\t") {
+			in = t == "interface mgmt"
+			continue
+		}
+		if in && strings.HasPrefix(t, "ip static "+sw.Host+"/") {
+			return "mgmt"
+		}
+		if in && t == "ip dhcp" {
+			return "mgmt"
+		}
+	}
+	return "default"
+}
+
+// waitBack waits for SSH to stop answering, then to answer again.
+func (m *Manager) waitBack(sw store.Switch, fam aruba.Family) error {
+	addr := net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port))
+	up := func() bool {
+		c, err := net.DialTimeout("tcp", addr, 3*time.Second)
+		if err == nil {
+			c.Close()
+		}
+		return err == nil
+	}
+	down := time.Now().Add(5 * time.Minute)
+	for up() && time.Now().Before(down) {
+		if m.sleep(pollDown) {
+			return errors.New("SwitchDesk was closed during the update")
+		}
+	}
+	back := time.Now().Add(25 * time.Minute)
+	for !up() {
+		if time.Now().After(back) {
+			return errors.New("the switch hasn't come back after 25 minutes; check it on the console")
+		}
+		if m.sleep(pollUp) {
+			return errors.New("SwitchDesk was closed during the update")
+		}
+	}
+	// SSH answers before the CLI is fully ready
+	if m.sleep(settleAfter) {
+		return errors.New("SwitchDesk was closed during the update")
+	}
+	return nil
+}
+
+func (m *Manager) sleep(d time.Duration) (stopped bool) {
+	select {
+	case <-m.ctx.Done():
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func lastLines(s string, n int) string {
+	var keep []string
+	for _, l := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(l); t != "" {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) > n {
+		keep = keep[len(keep)-n:]
+	}
+	return strings.Join(keep, " / ")
+}
+
+// ---------- automatic mode ----------
+
+func inWindow(now time.Time, start, end string) bool {
+	s, err1 := time.Parse("15:04", start)
+	e, err2 := time.Parse("15:04", end)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	cur := now.Hour()*60 + now.Minute()
+	a, b := s.Hour()*60+s.Minute(), e.Hour()*60+e.Minute()
+	if a <= b {
+		return cur >= a && cur < b
+	}
+	return cur >= a || cur < b // window over midnight
+}
+
+func (m *Manager) autoLoop() {
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-time.After(5 * time.Minute):
+		}
+		m.autoTick(time.Now())
+	}
+}
+
+func (m *Manager) autoTick(now time.Time) {
+	set := m.st.Settings()
+	if set.FirmwareAuto != "stage" && set.FirmwareAuto != "install" {
+		return
+	}
+	install := set.FirmwareAuto == "install" && inWindow(now, set.WindowStart, set.WindowEnd)
+	sws := m.st.Switches()
+	sort.Slice(sws, func(i, k int) bool { return sws[i].ID < sws[k].ID })
+	for _, sw := range sws {
+		if sw.Disabled {
+			continue
+		}
+		m.mu.Lock()
+		snap := m.snaps[sw.ID]
+		online := m.status[sw.ID] != nil && m.status[sw.ID].Online
+		m.mu.Unlock()
+		if !online || snap == nil {
+			continue
+		}
+		fi := m.firmwareFor(sw, snap)
+		if !fi.Supported || fi.Available == "" {
+			continue
+		}
+		if last := m.jobFor(sw.ID); last != nil {
+			if last.active() {
+				continue
+			}
+			// don't retry a failed version for a day
+			if last.State == "failed" && last.To == fi.Available && now.Sub(last.EndedAt) < 24*time.Hour {
+				continue
+			}
+		}
+		switch {
+		case install:
+			m.newJob(sw.ID, fi.Image, true, true) // copies if needed, then reboots
+		case !fi.Staged:
+			m.newJob(sw.ID, fi.Image, false, true) // copy to the spare bank only
+		}
+	}
+}
+
+// Library gives the app access to the firmware library (nil if it couldn't be opened).
+func (m *Manager) Library() *firmware.Library { return m.lib }

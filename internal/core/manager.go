@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jaba0x/switchdesk/internal/aruba"
+	"github.com/jaba0x/switchdesk/internal/firmware"
 	"github.com/jaba0x/switchdesk/internal/sshx"
 	"github.com/jaba0x/switchdesk/internal/store"
 )
@@ -41,6 +43,9 @@ type Manager struct {
 	locks  map[string]*sync.Mutex
 	active int
 
+	lib *firmware.Library
+	up  upgrader
+
 	queue chan string
 	ctx   context.Context
 	stop  context.CancelFunc
@@ -48,6 +53,10 @@ type Manager struct {
 
 func New(st *store.Store, notify func(string)) *Manager {
 	m := &Manager{st: st, notify: notify, status: map[string]*Status{}, snaps: map[string]*aruba.Snapshot{}, locks: map[string]*sync.Mutex{}, queue: make(chan string, 1024)}
+	m.up.queue = make(chan *Job, 512)
+	if lib, err := firmware.OpenLibrary(filepath.Join(st.Dir(), "firmware")); err == nil {
+		m.lib = lib
+	}
 	for _, sw := range st.Switches() {
 		m.status[sw.ID] = &Status{}
 		if s, ok := st.LoadSnapshot(sw.ID); ok {
@@ -72,6 +81,10 @@ func (m *Manager) Start() {
 	}
 	go m.pingLoop()
 	go m.scheduleLoop()
+	rebootLock, slot := &sync.Mutex{}, make(chan struct{}, 2)
+	go m.jobWorker(rebootLock, slot)
+	go m.jobWorker(rebootLock, slot)
+	go m.autoLoop()
 }
 
 // Stop cancels polling and waits (up to 30s) for running collections, so the
@@ -427,10 +440,11 @@ type PortLED struct {
 
 type SwitchView struct {
 	store.Switch
-	Status  Status   `json:"status"`
-	Summary *Summary `json:"summary"`
-	Issues  []Issue  `json:"issues"`
-	Worst   Severity `json:"worst"`
+	Status   Status       `json:"status"`
+	Firmware FirmwareInfo `json:"firmware"`
+	Summary  *Summary     `json:"summary"`
+	Issues   []Issue      `json:"issues"`
+	Worst    Severity     `json:"worst"`
 }
 
 type Dashboard struct {
@@ -506,7 +520,8 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 			issues = evaluate(sw, st, snap, set)
 		}
 		sortIssues(issues)
-		v := SwitchView{Switch: sw, Status: *st, Summary: summarize(snap), Issues: issues}
+		v := SwitchView{Switch: sw, Status: *st, Summary: summarize(snap), Issues: issues, Firmware: m.firmwareFor(sw, snap)}
+		v.Firmware.Job = m.jobFor(sw.ID)
 		if len(issues) > 0 {
 			v.Worst = issues[0].Severity
 		}

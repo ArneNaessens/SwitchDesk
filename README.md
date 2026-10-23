@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -61,6 +61,15 @@ Built from LLDP and CDP and laid out top-down from the spanning-tree root. Drag 
 
 ### Switch list
 Search by name, address, site, model or software, or by state: `offline`, `disabled`, `problem`. Words combine, so `acc offline` finds offline access switches. Press `/` to jump to the search box. Tick switches to collect, disable, enable or delete them together, or use the small buttons at the end of each row. A disabled switch keeps its last data but isn't checked, read or alerted on until you enable it again.
+
+### Firmware updates
+Each switch shows the version it runs, what's in its primary and secondary bank, and whether your firmware library has something newer for its platform. **Update** copies the image into the spare bank (the running version stays in the other one as a fallback), sets it as the boot default, saves the config and reboots, then checks that the switch came back on the new version. Pick several switches and they're updated one at a time. Or choose **copy only** and reboot whenever suits you.
+
+Switches pull the image straight from SwitchDesk over TFTP (UDP 69), so nothing else needs to be set up. Your firewall may ask to allow it the first time.
+
+HPE doesn't offer firmware downloads without signing in, so the library is filled by you: add `.swi` files you downloaded, or paste a download link from the HPE Networking Support Portal and SwitchDesk fetches it. Images are matched to switches by platform code (WC, YA, KB, FL, PL…), read from the file name or the image itself.
+
+**Automatic mode** (Settings) can copy new firmware to every switch's spare bank as soon as it lands in the library, or also install it by rebooting one switch at a time inside a maintenance window you set.
 
 ## Supported switches
 
@@ -141,7 +150,8 @@ The UI is plain HTML, CSS and JavaScript in `frontend/dist` with no build step. 
 internal/sshx    SSH shell sessions: prompts, paging, escape codes, legacy ciphers
 internal/aruba   command sets per family, output parsers, VLAN change builder
 internal/core    polling, problem rules, network map
-internal/store   inventory, encrypted credentials, snapshots, config copies
+internal/store     inventory, encrypted credentials, snapshots, config copies
+internal/firmware  image library, version matching, built-in TFTP server
 ```
 
 Parsers are tested against sample output from both AOS-S and AOS-CX. If a switch prints something they misread, the **Raw output** tab shows exactly what came back, and that makes a good test case.

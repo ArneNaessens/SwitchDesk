@@ -101,7 +101,7 @@ func InspectDir(dir, current string) DirInfo {
 }
 
 // dataEntries are the files and folders that make up a data folder.
-var dataEntries = []string{"inventory.json", "secret.key", "snapshots", "backups"}
+var dataEntries = []string{"inventory.json", "secret.key", "snapshots", "backups", "firmware"}
 
 // CopyData copies this store's files into dst (overwriting what's there).
 func (s *Store) CopyData(dst string) error {

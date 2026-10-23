@@ -1,0 +1,294 @@
+package core
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/jaba0x/switchdesk/internal/store"
+)
+
+// fakeAOSS is a pretend 2930F: it answers the firmware commands and, on
+// "copy tftp flash", really downloads the file from the TFTP port it's given.
+type fakeAOSS struct {
+	mu                 sync.Mutex
+	primary, secondary string
+	running, def       string
+	tftpPort           int
+	gotBytes           int
+	ln                 net.Listener
+	addr               string
+	cfg                *ssh.ServerConfig
+	down               bool
+}
+
+func newFakeAOSS(t *testing.T) *fakeAOSS {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := ssh.NewSignerFromKey(priv)
+	f := &fakeAOSS{primary: "WC.16.11.0015", secondary: "WC.16.10.0012", running: "primary", def: "primary"}
+	f.cfg = &ssh.ServerConfig{PasswordCallback: func(c ssh.ConnMetadata, p []byte) (*ssh.Permissions, error) { return nil, nil }}
+	f.cfg.AddHostKey(signer)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.addr = ln.Addr().String()
+	f.listen(ln)
+	return f
+}
+
+func (f *fakeAOSS) listen(ln net.Listener) {
+	f.ln = ln
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go f.serve(c)
+		}
+	}()
+}
+
+// reboot drops SSH for a moment and comes back on the default bank.
+func (f *fakeAOSS) reboot() {
+	f.ln.Close()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		f.mu.Lock()
+		f.running = f.def
+		f.mu.Unlock()
+		// the port can stay busy for a moment on some systems
+		for i := 0; i < 100; i++ {
+			if ln, err := net.Listen("tcp", f.addr); err == nil {
+				f.listen(ln)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+}
+
+func (f *fakeAOSS) serve(nc net.Conn) {
+	_, chans, reqs, err := ssh.NewServerConn(nc, f.cfg)
+	if err != nil {
+		return
+	}
+	go ssh.DiscardRequests(reqs)
+	for nch := range chans {
+		ch, creqs, _ := nch.Accept()
+		go func() {
+			for r := range creqs {
+				r.Reply(r.Type == "pty-req" || r.Type == "shell", nil)
+				if r.Type == "shell" {
+					go f.shell(ch, nc)
+				}
+			}
+		}()
+	}
+}
+
+func (f *fakeAOSS) shell(ch ssh.Channel, nc net.Conn) {
+	defer ch.Close()
+	prompt := "SW-FAKE# "
+	io.WriteString(ch, "\r\n"+prompt)
+	b := make([]byte, 1)
+	var line []byte
+	copyRe := regexp.MustCompile(`^copy tftp flash (\S+) (\S+) (primary|secondary)$`)
+	for {
+		if n, err := ch.Read(b); err != nil || n == 0 {
+			return
+		}
+		if b[0] != '\r' && b[0] != '\n' {
+			line = append(line, b[0])
+			ch.Write(b)
+			continue
+		}
+		cmd := strings.TrimSpace(string(line))
+		line = nil
+		io.WriteString(ch, "\r\n")
+		f.mu.Lock()
+		run := f.primary
+		if f.running == "secondary" {
+			run = f.secondary
+		}
+		switch {
+		case cmd == "show version":
+			fmt.Fprintf(ch, "Image stamp:    /ws/swbuildm/rel_x\r\n                 %s\r\n Boot Image:     %s\r\n", run, strings.Title(f.running))
+		case cmd == "show flash":
+			fmt.Fprintf(ch, "Primary Image   :     33204214 10/18/23 %s\r\nSecondary Image :     32952136 03/10/22 %s\r\n\r\nDefault Boot Image   : %s\r\n", f.primary, f.secondary, strings.Title(f.def))
+		case copyRe.MatchString(cmd):
+			m := copyRe.FindStringSubmatch(cmd)
+			port := f.tftpPort
+			f.mu.Unlock()
+			io.WriteString(ch, "The Secondary OS Image will be deleted, continue [y/n]? ")
+			ch.Read(b) // the 'y'
+			io.WriteString(ch, "\r\n")
+			data, err := tftpGet(m[1], port, m[2])
+			f.mu.Lock()
+			if err != nil {
+				fmt.Fprintf(ch, "TFTP download failed: %v\r\n", err)
+			} else {
+				f.gotBytes = len(data)
+				v := regexp.MustCompile(`([A-Z]{2})_(\d+)_(\d+)_(\d+)`).FindStringSubmatch(m[2])
+				ver := fmt.Sprintf("%s.%s.%s.%s", v[1], v[2], v[3], v[4])
+				if m[3] == "secondary" {
+					f.secondary = ver
+				} else {
+					f.primary = ver
+				}
+				io.WriteString(ch, "Validating and Writing System Software to the Filesystem ...\r\n")
+			}
+		case strings.HasPrefix(cmd, "boot set-default flash "):
+			f.def = strings.TrimPrefix(cmd, "boot set-default flash ")
+		case strings.HasPrefix(cmd, "boot system flash "):
+			f.mu.Unlock()
+			io.WriteString(ch, "This will reboot the system from the secondary image.\r\nContinue (y/n)? ")
+			ch.Read(b)
+			ch.Close()
+			nc.Close()
+			f.reboot()
+			return
+		case cmd == "no page", cmd == "write memory", cmd == "terminal width 200", cmd == "":
+		default:
+			fmt.Fprintf(ch, "Invalid input: %s\r\n", cmd)
+		}
+		f.mu.Unlock()
+		io.WriteString(ch, prompt)
+	}
+}
+
+func tftpGet(host string, port int, name string) ([]byte, error) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	srv := &net.UDPAddr{IP: net.ParseIP(host), Port: port}
+	req := append(append([]byte{0, 1}, name+"\x00octet\x00"...), "blksize\x001024\x00"...)
+	c.WriteToUDP(req, srv)
+	var out bytes.Buffer
+	buf := make([]byte, 2048)
+	size, expect := 512, uint16(1)
+	for {
+		c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, from, err := c.ReadFromUDP(buf)
+		if err != nil {
+			return nil, err
+		}
+		switch binary.BigEndian.Uint16(buf) {
+		case 5:
+			return nil, fmt.Errorf("%s", buf[4:n-1])
+		case 6:
+			size = 1024
+			c.WriteToUDP([]byte{0, 4, 0, 0}, from)
+		case 3:
+			blk := binary.BigEndian.Uint16(buf[2:])
+			c.WriteToUDP([]byte{0, 4, buf[2], buf[3]}, from)
+			if blk == expect {
+				out.Write(buf[4:n])
+				expect++
+				if n-4 < size {
+					return out.Bytes(), nil
+				}
+			}
+		}
+	}
+}
+
+func TestUpgradeEndToEnd(t *testing.T) {
+	tftpAddr, pollDown, pollUp, settleAfter = "127.0.0.1:0", 50*time.Millisecond, 100*time.Millisecond, 200*time.Millisecond
+
+	dir := t.TempDir()
+	st, _ := store.Open(dir)
+	cred, _ := st.SaveCredential(store.Credential{Username: "manager", Password: "x"})
+	fake := newFakeAOSS(t)
+	host, portS, _ := net.SplitHostPort(fake.addr)
+	port, _ := strconv.Atoi(portS)
+	sw, _ := st.SaveSwitch(store.Switch{Host: host, Port: port, CredentialID: cred.ID})
+
+	m := New(st, nil)
+	m.Start()
+	defer m.Stop()
+
+	// put a newer image in the library; the fake learns where the TFTP server listens
+	img := filepath.Join(t.TempDir(), "WC_16_11_0021.swi")
+	payload := bytes.Repeat([]byte("firmware!"), 50000)
+	os.WriteFile(img, payload, 0o600)
+	if _, err := m.Library().AddFile(img); err != nil {
+		t.Fatal(err)
+	}
+	m.collect(sw.ID)
+	fi := m.Dashboard().Switches[0].Firmware
+	if fi.Running != "WC.16.11.0015" || fi.Available != "WC.16.11.0021" || fi.Staged || !fi.Supported {
+		t.Fatalf("availability: %+v", fi)
+	}
+
+	// grab the TFTP port once the job starts its server
+	go func() {
+		for i := 0; i < 400; i++ {
+			m.up.mu.Lock()
+			if m.up.tftp != nil {
+				fake.mu.Lock()
+				fake.tftpPort = m.up.tftp.Port()
+				fake.mu.Unlock()
+				m.up.mu.Unlock()
+				return
+			}
+			m.up.mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	jobs, err := m.StartUpgrade([]string{sw.ID}, "", true, false)
+	if err != nil || len(jobs) != 1 {
+		t.Fatal(jobs, err)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	var j Job
+	for time.Now().Before(deadline) {
+		j = m.Jobs()[0]
+		if !j.active() {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if j.State != "done" {
+		t.Fatalf("job ended %s: %s\n%s", j.State, j.Error, strings.Join(j.Log, "\n"))
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.gotBytes != len(payload) || fake.secondary != "WC.16.11.0021" || fake.running != "secondary" {
+		t.Fatalf("fake switch: got %d bytes, secondary %s, running %s", fake.gotBytes, fake.secondary, fake.running)
+	}
+	if fi := m.Dashboard().Switches[0].Firmware; fi.Available != "" || fi.Running != "WC.16.11.0021" {
+		t.Fatalf("after update: %+v", fi)
+	}
+	// the same image again: nothing newer, so no job
+	if _, err := m.StartUpgrade([]string{sw.ID}, "", true, false); err == nil {
+		t.Fatal("queued an update with nothing newer")
+	}
+}
+
+func TestMaintenanceWindow(t *testing.T) {
+	at := func(h, m int) time.Time { return time.Date(2026, 1, 1, h, m, 0, 0, time.Local) }
+	if !inWindow(at(2, 30), "02:00", "05:00") || inWindow(at(5, 0), "02:00", "05:00") || inWindow(at(1, 59), "02:00", "05:00") {
+		t.Fatal("plain window")
+	}
+	if !inWindow(at(23, 30), "23:00", "01:00") || !inWindow(at(0, 30), "23:00", "01:00") || inWindow(at(12, 0), "23:00", "01:00") {
+		t.Fatal("window over midnight")
+	}
+}

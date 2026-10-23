@@ -29,6 +29,13 @@
       status: { online: !s.offline, checked: true, latencyMs: s.offline ? 0 : 2 + (s.host.length % 5), since: mins(s.offline ? 47 : 3000), collecting: false, lastCollect: mins(4) },
       summary: s.offline ? { family: "AOS-S", hostname: s.name, model: "JL256A 2930F-48G-PoE+-4SFP+", software: "WC.16.11.0015", ports: [], collectedAt: mins(300) } : { family: s.fam, hostname: s.name, model: s.model, software: s.sw, serial: "SG" + s.id.toUpperCase() + "123", uptime: "41 days", cpu: s.id === "acc2" ? 37 : 6, memory: 31, vlans: 6, portsUp: s.p.filter((x) => x.up).length, portsTotal: s.p.length, neighbors: 3, stpRole: s.role, collectedAt: mins(4), ports: s.p },
       issues, worst: issues[0]?.severity || "", disabled: false,
+      firmware: s.offline ? {} : (() => {
+        const run = s.sw && /^[A-Z]{2}\./.test(s.sw) ? s.sw : "";
+        const avail = { "WC.16.11.0015": "WC.16.11.0021", "FL.10.13.1000": "FL.10.14.0001" }[run] || "";
+        return { supported: s.fam !== "Instant On", running: run || s.sw, available: avail, image: avail ? avail.replace(/\./g, "_") + ".swi" : "", staged: s.id === "acc2",
+          banks: { known: true, primary: run, secondary: s.id === "acc2" ? avail : "WC.16.10.0012", running: "primary", default: s.id === "acc2" ? "secondary" : "primary" },
+          job: s.id === "acc1" ? { id: "j1", state: "running", progress: 0.42, step: "Copying WC_16_11_0021.swi to the secondary bank from 10.10.1.50", from: "WC.16.11.0015", to: "WC.16.11.0021" } : null };
+      })(),
     };
   });
   views.push({ ...views[6], id: "old1", name: "old-2530-lab", host: "10.10.9.40", disabled: true, issues: [], worst: "", summary: { ...views[6].summary, model: "J9774A 2530-8G-PoEP", portsTotal: 10 } });
@@ -98,7 +105,7 @@ password manager`;
   window.go = { main: { App: {
     Platform: async () => "darwin", Version: async () => "0.1.0",
     GetDashboard: async () => dash, GetSwitch: async (id) => detail(id), GetTopology: async () => topo, SaveLayout: async () => {},
-    GetSettings: async () => ({ pingInterval: 30, collectInterval: 15, parallel: 4, keepBackups: 20, cpuWarn: 80, memWarn: 90 }),
+    GetSettings: async () => ({ firmwareAuto: "install", windowStart: "02:00", windowEnd: "05:00", pingInterval: 30, collectInterval: 15, parallel: 4, keepBackups: 20, cpuWarn: 80, memWarn: 90 }),
     Credentials: async () => [{ id: "c1", name: "Network admins", username: "admin" }],
     VLANOverview: async () => views.filter((v) => v.summary?.ports?.length).map((v, i) => ({ id: v.id, name: v.name, online: true, vlans: vlans.filter((x, j) => (i + j) % 4 !== 3).map((x) => (v.id === "io1" && x.id === 30 ? { ...x, name: "VOIP" } : x)) })),
     GetBackup: async () => cfg.replace("aaa authentication ssh login radius local\n", ""),
@@ -110,7 +117,16 @@ password manager`;
     PickDataFolder: async () => ({ path: "/Users/jaba/Dropbox/SwitchDesk", hasData: false, switches: 0, writable: true, same: false }),
     PickImportFile: async () => "/Users/jaba/Downloads/SwitchDesk-2026-10-23.sdbak",
     InspectImport: async () => ({ switches: 7, createdAt: new Date().toISOString(), history: true }),
-    StartupNotice: async () => "", SetDisabled: async () => {}, DeleteSwitches: async () => {}, OpenDataFolder: async () => {},
+    StartupNotice: async () => "",
+    FirmwareImages: async () => [
+      { file: "WC_16_11_0021.swi", version: { branch: "WC", text: "WC.16.11.0021" }, size: 33554432, addedAt: new Date(Date.now() - 864e5).toISOString(), source: "file" },
+      { file: "ArubaOS-CX_6400-6300_10_14_0001.swi", version: { branch: "FL", text: "FL.10.14.0001" }, size: 681574400, addedAt: new Date(Date.now() - 3600e3).toISOString(), source: "networkingsupport.hpe.com" },
+      { file: "YA_16_11_0019.swi", version: { branch: "YA", text: "YA.16.11.0019" }, size: 21000000, addedAt: new Date(Date.now() - 8e8).toISOString(), source: "file" }],
+    UpgradeJobs: async () => [
+      { id: "j1", switchName: "acc-2930-f1", from: "WC.16.11.0015", to: "WC.16.11.0021", reboot: true, state: "running", progress: 0.42, step: "Copying WC_16_11_0021.swi to the secondary bank from 10.10.1.50", log: ["23:41:02  Reading firmware banks", "23:41:03  Primary WC.16.11.0015, secondary WC.16.10.0012, running from primary", "23:41:03  Copying WC_16_11_0021.swi to the secondary bank from 10.10.1.50"] },
+      { id: "j2", switchName: "acc-2930-f2", from: "WC.16.11.0015", to: "WC.16.11.0021", reboot: false, auto: true, state: "staged", step: "Ready: WC.16.11.0021 boots on the next restart" },
+      { id: "j3", switchName: "core-cx-01", from: "FL.10.12.1010", to: "FL.10.13.1000", reboot: true, state: "done", step: "Updated to FL.10.13.1000" }],
+    StartUpgrade: async (ids) => ids.map((id) => ({ id })), ClearFinishedUpgrades: async () => {}, OpenFirmwareFolder: async () => {}, SetDisabled: async () => {}, DeleteSwitches: async () => {}, OpenDataFolder: async () => {},
   } } };
   window.runtime = { EventsOn: () => {} };
 })();

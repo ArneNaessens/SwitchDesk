@@ -436,3 +436,45 @@ func TestReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBanks(t *testing.T) {
+	flash := `
+Image             Size (bytes) Date     Version
+----------------- ------------ -------- --------------
+Primary Image   :     33204214 10/18/23 WC.16.11.0015
+Secondary Image :     32952136 03/10/22 WC.16.10.0012
+
+Boot ROM Version
+----------------
+Primary Boot ROM Version   : WC.17.02.0006
+Secondary Boot ROM Version : WC.17.02.0006
+
+Default Boot Image   : Primary
+Default Boot ROM     : Primary
+`
+	ver := "Image stamp:    /ws/swbuildm/rel_xxx\n                 WC.16.11.0015\n Boot Image:     Primary\n"
+	b := ParseBanks(FamilyAOSS, flash, ver)
+	if !b.Known || b.Primary != "WC.16.11.0015" || b.Secondary != "WC.16.10.0012" || b.Running != "primary" || b.Default != "primary" || b.Spare() != "secondary" {
+		t.Fatalf("aos-s banks: %+v", b)
+	}
+	images := `---------------------------------------------------------------------------
+ArubaOS-CX Primary Image
+---------------------------------------------------------------------------
+Version : FL.10.13.1000
+Size    : 643 MB
+Date    : 2024-01-10 08:01:31 PST
+SHA-256 : 9f2a
+
+---------------------------------------------------------------------------
+ArubaOS-CX Secondary Image
+---------------------------------------------------------------------------
+Version : FL.10.14.0001
+Size    : 650 MB
+
+Default Image : secondary
+`
+	c := ParseBanks(FamilyAOSCX, images, "Version      : FL.10.13.1000\nActive Image : primary\n")
+	if c.Primary != "FL.10.13.1000" || c.Secondary != "FL.10.14.0001" || c.Running != "primary" || c.Default != "secondary" || c.Spare() != "secondary" {
+		t.Fatalf("cx banks: %+v", c)
+	}
+}

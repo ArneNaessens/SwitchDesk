@@ -325,20 +325,24 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 		return "", err
 	}
 	deadline := time.Now().Add(timeout)
+	answered := -1 // line number of the last prompt we answered, so each is answered once
 	for time.Now().Before(deadline) {
 		raw := s.snapshot()
 		clean := Clean(raw)
 		tail := lastLine(clean)
-		if moreRe.MatchString(tail) {
+		line := strings.Count(strings.TrimRight(clean, "\n "), "\n")
+		if moreRe.MatchString(tail) && line != answered {
 			s.write(" ")
+			answered = line
 		} else if s.isPrompt(tail) && strings.Count(clean, "\n") >= 1 {
 			if s.quiet(200 * time.Millisecond) {
 				return trimEcho(clean, cmd), nil
 			}
 			continue
-		} else if strings.Contains(tail, "(y/n)") || strings.HasSuffix(strings.TrimSpace(tail), "[y/n]?") {
-			// confirmation prompts (e.g. write memory on some builds)
+		} else if isConfirm(tail) && line != answered {
+			// confirmation prompts (copy over an image, save before reboot, reboot now)
 			s.write("y")
+			answered = line
 		}
 		if err := s.wait(ctx, 300*time.Millisecond); err != nil {
 			return trimEcho(clean, cmd), err
@@ -346,6 +350,10 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 	}
 	return trimEcho(Clean(s.snapshot()), cmd), fmt.Errorf("timeout waiting for %q", cmd)
 }
+
+var confirmRe = regexp.MustCompile(`(?i)(\(y/n\)|\[y/n\])\??\s*:?\s*$`)
+
+func isConfirm(tail string) bool { return confirmRe.MatchString(strings.TrimSpace(tail)) }
 
 func trimEcho(out, cmd string) string {
 	lines := strings.Split(strings.Trim(out, "\n"), "\n")
