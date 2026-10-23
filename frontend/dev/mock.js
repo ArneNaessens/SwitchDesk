@@ -105,6 +105,11 @@ password manager`;
     ApplyVLAN: async () => ({ ok: true, transcript: ["> configure terminal", "> vlan 50", "> exit"] }),
     RunCommand: async (id, c) => "  Status and Counters - VLAN Information\n\n  VLAN ID Name     | Status\n  1       DEFAULT  | Port-based",
     RefreshAll: async () => {}, Refresh: async () => {},
+    DataFolder: async () => ({ path: "/Users/jaba/Library/Application Support/SwitchDesk", defaultPath: "/Users/jaba/Library/Application Support/SwitchDesk", custom: false }),
+    PickDataFolder: async () => ({ path: "/Users/jaba/Dropbox/SwitchDesk", hasData: false, switches: 0, writable: true, same: false }),
+    PickImportFile: async () => "/Users/jaba/Downloads/SwitchDesk-2026-10-23.sdbak",
+    InspectImport: async () => ({ switches: 7, createdAt: new Date().toISOString(), history: true }),
+    StartupNotice: async () => "", OpenDataFolder: async () => {},
   } } };
   window.runtime = { EventsOn: () => {} };
 })();

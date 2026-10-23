@@ -28,13 +28,17 @@ type App struct {
 
 	emitMu   sync.Mutex
 	emitWait bool
+
+	swapMu sync.Mutex // held while the data folder is being swapped
+	notice string     // shown once in the UI after startup
 }
 
 func NewApp() *App { return &App{} }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	dir, err := store.DefaultDir()
+	dir, _, notice, err := store.ResolveDir()
+	a.notice = notice
 	if err == nil {
 		a.st, err = store.Open(dir)
 	}

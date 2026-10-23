@@ -105,9 +105,9 @@ Pushing a tag like `v0.2.0` runs the GitHub Actions workflow, which builds both 
 
 ## Your data
 
-Everything stays on your computer.
+Everything stays on your computer, in one folder.
 
-| OS | Folder |
+| OS | Default folder |
 |---|---|
 | macOS | `~/Library/Application Support/SwitchDesk` |
 | Windows | `%AppData%\SwitchDesk` |
@@ -115,6 +115,10 @@ Everything stays on your computer.
 - `inventory.json` holds switches, settings and map positions. Passwords are encrypted with AES-GCM using a key in `secret.key`, readable only by your user.
 - `snapshots/` keeps the last reading of each switch, so the app opens with data.
 - `backups/` keeps a copy of a switch's running config each time it changes.
+
+**Choosing another folder.** Settings → Data → Change lets you move the data to another disk or a synced drive, copy it there, or open a folder that already has SwitchDesk data. The key moves with the folder, so the same folder works from any computer that can reach it.
+
+**Moving to another computer.** Settings → Data → Export writes a single `.sdbak` file. Passwords inside are re-encrypted with a passphrase you pick (Argon2id + AES-GCM), so the file is safe to carry around and opens on any machine. On the other computer, Import either adds the file's switches to the ones already there or replaces everything with the file's contents.
 
 SSH host keys are pinned on first connect. If a switch later presents a different key, SwitchDesk stops connecting to it until you confirm on the switch page.
 

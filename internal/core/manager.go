@@ -74,9 +74,21 @@ func (m *Manager) Start() {
 	go m.scheduleLoop()
 }
 
+// Stop cancels polling and waits (up to 30s) for running collections, so the
+// data folder can be swapped safely afterwards.
 func (m *Manager) Stop() {
 	if m.stop != nil {
 		m.stop()
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		n := m.active
+		m.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -325,6 +337,9 @@ func (m *Manager) collect(id string) {
 	}
 	m.mu.Unlock()
 
+	if m.ctx.Err() != nil {
+		return
+	}
 	m.st.SaveSnapshot(id, snap)
 	m.st.SaveBackup(id, snap.RunningConfig, m.st.Settings().KeepBackups)
 }

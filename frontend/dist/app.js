@@ -814,6 +814,7 @@ async function renderSettings() {
   S.settings = await call("GetSettings");
   const set = S.settings;
   const ver = await call("Version");
+  const df = await call("DataFolder");
   $("#main").innerHTML = `<div class="page" style="max-width:900px"><div class="head"><h1>Settings</h1></div>
     <section class="panel" style="margin-bottom:18px"><h2>Credentials<span class="grow"></span><button class="btn small" onclick="editCred()">${ICON.plus}Add</button></h2>
       ${S.creds.length ? `<table><tbody>${S.creds.map((c) => `<tr><td>${esc(c.name)}</td><td class="mono">${esc(c.username)}</td><td style="text-align:right"><button class="btn small" onclick="editCred('${c.id}')">Edit</button> <button class="btn small danger" onclick="delCred('${c.id}')">Remove</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No credentials yet. They're added when you add your first switch.</div>`}
@@ -827,7 +828,114 @@ async function renderSettings() {
         <label class="f"><span>Warn above memory %</span><input type="number" id="mw" value="${set.memWarn}"></label></div>
       <label class="check" style="margin-bottom:14px"><input type="checkbox" id="is" ${set.ignoreSnmp ? "checked" : ""}> Don't flag default SNMP communities</label>
       <button class="btn primary" onclick="saveSettings()">Save settings</button></div></section>
-    <p class="faint" style="font-size:12.5px;margin-top:18px">SwitchDesk ${esc(ver)}. Data folder: <span class="mono">${esc(S.dash?.dataDir || "")}</span></p></div>`;
+    <section class="panel" style="margin-top:18px"><h2>Data</h2><div class="body">
+      <label class="f"><span>Data folder${df.custom ? "" : ' <span class="faint">(default)</span>'}</span>
+        <div class="row" style="align-items:center"><input type="text" class="mono" readonly value="${esc(df.path)}"><span style="flex:none;display:flex;gap:6px">
+        <button class="btn" onclick="pickDataFolder()">Change…</button><button class="btn" onclick="call('OpenDataFolder')">Open</button>
+        ${df.custom ? `<button class="btn" onclick="resetDataFolder()">Use default</button>` : ""}</span></div></label>
+      <p class="faint" style="font-size:12.5px;margin:-4px 0 18px">Holds your switches, encrypted credentials, saved configs and map layout. A folder on another disk or a synced drive works; the encryption key travels with it.</p>
+      <div class="row" style="align-items:stretch">
+        <div class="panel" style="padding:14px 16px;background:var(--panel-2)"><b style="font-weight:600">Export to another computer</b>
+          <p class="muted" style="font-size:13px;margin:6px 0 12px">Saves everything to one .sdbak file. Passwords inside are protected by a passphrase you choose here and need again when importing.</p>
+          <button class="btn primary" onclick="openExport()">Export…</button></div>
+        <div class="panel" style="padding:14px 16px;background:var(--panel-2)"><b style="font-weight:600">Import from a file</b>
+          <p class="muted" style="font-size:13px;margin:6px 0 12px">Add the switches from a .sdbak file to this computer, or replace everything here with its contents.</p>
+          <button class="btn" onclick="openImport()">Import…</button></div>
+      </div></div></section>
+    <p class="faint" style="font-size:12.5px;margin-top:18px">SwitchDesk ${esc(ver)}</p></div>`;
+}
+
+// ---------- data folder, export, import ----------
+async function pickDataFolder() {
+  let info;
+  try { info = await call("PickDataFolder"); } catch (e) { toast(e.message, true); return; }
+  if (!info) return;
+  confirmFolder(info, false);
+}
+
+async function resetDataFolder() {
+  confirmFolder(await call("DefaultFolderInfo"), true);
+}
+
+function confirmFolder(info, isDefault) {
+  if (info.same) { toast("That's already the data folder"); return; }
+  if (!info.writable) { toast("SwitchDesk can't write to " + info.path, true); return; }
+  const where = isDefault ? "the default folder" : "this folder";
+  const choices = info.hasData
+    ? `<p>${isDefault ? "The default folder" : "This folder"} already has SwitchDesk data with ${plural(info.switches, "switch").replace("switchs", "switches")}.</p>
+       <label class="check" style="margin-bottom:8px"><input type="radio" name="fm" value="use" checked> Use the data that's there</label>
+       <label class="check"><input type="radio" name="fm" value="move"> Replace it with my current data</label>`
+    : `<p>Your current data will be copied to ${where}.</p>
+       <label class="check" style="margin-bottom:8px"><input type="radio" name="fm" value="move" checked> Move it, and remove it from the old folder</label>
+       <label class="check"><input type="radio" name="fm" value="copy"> Copy it, and leave the old folder as it is</label>`;
+  const m = modal(`<h2>Change data folder</h2><div class="body"><p class="mono" style="margin-top:0;user-select:text;word-break:break-all">${esc(info.path)}</p>${choices}<div id="fmsg"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="fgo">Switch folder</button></div>`);
+  $("#fgo", m).onclick = async () => {
+    const mode = $("input[name=fm]:checked", m).value;
+    const b = $("#fgo", m);
+    b.disabled = true; b.textContent = "Switching…";
+    try {
+      await call("ChangeDataFolder", info.path, mode);
+      closeModal();
+      toast("Now using " + info.path);
+      renderSettings();
+    } catch (e) {
+      $("#fmsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+      b.disabled = false; b.textContent = "Switch folder";
+    }
+  };
+}
+
+function openExport() {
+  const m = modal(`<h2>Export to another computer</h2><div class="body">
+    <div class="row"><label class="f"><span>Passphrase</span><input type="password" id="ep1" autocomplete="new-password"></label>
+    <label class="f"><span>Repeat passphrase</span><input type="password" id="ep2" autocomplete="new-password"></label></div>
+    <p class="faint" style="font-size:12.5px;margin:-4px 0 14px">At least 8 characters. Without it, the passwords in the file can't be read, so keep it somewhere safe.</p>
+    <label class="check"><input type="checkbox" id="eh" checked> Include saved configs and last readings</label><div id="emsg"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="ego">Export…</button></div>`);
+  $("#ego", m).onclick = async () => {
+    const p1 = $("#ep1", m).value, p2 = $("#ep2", m).value;
+    const err = (t) => ($("#emsg", m).innerHTML = `<div class="msg err">${esc(t)}</div>`);
+    if (p1.length < 8) return err("Use at least 8 characters.");
+    if (p1 !== p2) return err("The passphrases don't match.");
+    try {
+      const path = await call("ExportData", p1, $("#eh", m).checked);
+      closeModal();
+      toast("Exported to " + path);
+    } catch (e) { if (e.message !== "cancelled") err(e.message); }
+  };
+}
+
+async function openImport() {
+  let path;
+  try { path = await call("PickImportFile"); } catch (e) { toast(e.message, true); return; }
+  if (!path) return;
+  const m = modal(`<h2>Import from a file</h2><div class="body">
+    <p class="mono" style="margin-top:0;user-select:text;word-break:break-all">${esc(path)}</p>
+    <label class="f"><span>Passphrase used for the export</span><input type="password" id="ip" autocomplete="off"></label>
+    <div id="iinfo"></div>
+    <label class="check" style="margin-bottom:8px"><input type="radio" name="im" value="merge" checked> Add its switches to the ones here <span class="faint">(switches already here are skipped)</span></label>
+    <label class="check"><input type="radio" name="im" value="replace"> Replace everything here with the file's contents</label>
+    <div id="imsg"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="igo">Import</button></div>`);
+  const err = (t) => ($("#imsg", m).innerHTML = `<div class="msg err">${esc(t)}</div>`);
+  $("#ip", m).onchange = async () => {
+    try {
+      const i = await call("InspectImport", path, $("#ip", m).value);
+      $("#iinfo", m).innerHTML = `<p class="muted" style="font-size:13px;margin:-4px 0 14px">${plural(i.switches, "switch").replace("switchs", "switches")}, exported ${new Date(i.createdAt).toLocaleString()}${i.history ? ", with saved configs" : ""}.</p>`;
+      $("#imsg", m).innerHTML = "";
+    } catch (e) { err(e.message); }
+  };
+  $("#igo", m).onclick = async () => {
+    const mode = $("input[name=im]:checked", m).value;
+    if (mode === "replace" && !confirm("Replace all switches, credentials and settings on this computer with the file's contents?")) return;
+    try {
+      const r = await call("ImportData", path, $("#ip", m).value, mode);
+      closeModal();
+      toast(`Imported ${plural(r.added, "switch").replace("switchs", "switches")}${r.skipped?.length ? `, skipped ${r.skipped.length} already here` : ""}`);
+      location.hash = "#/dashboard";
+    } catch (e) { err(e.message === "wrong passphrase" ? "That passphrase doesn't open this file." : e.message); }
+  };
 }
 
 async function saveSettings() {
@@ -871,6 +979,8 @@ async function boot() {
   S.settings = await call("GetSettings");
   S.dash = await call("GetDashboard");
   window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
+  const notice = await call("StartupNotice").catch(() => "");
+  if (notice) toast(notice, true);
   // keep relative times fresh even when nothing changes
   setInterval(() => { if (!S.modalOpen && (S.route[0] || "dashboard") === "dashboard") renderDashboard(); }, 30000);
   route();
