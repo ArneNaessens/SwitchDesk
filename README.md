@@ -71,31 +71,34 @@ The only thing the switches need is SSH, plus LLDP if you want the map.
 
 ## Install
 
+Download the latest build from **[Releases](https://github.com/jaba0x/switchdesk/releases/latest)**.
+
 ### macOS
 
-You need Go 1.23+ (`brew install go`) and the Xcode command line tools (`xcode-select --install`).
+Get `SwitchDesk-…-macos-universal.zip` (runs on Apple Silicon and Intel), unzip it and drag **SwitchDesk** into Applications. The app isn't notarized by Apple, so the first time right-click it and choose **Open**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/SwitchDesk.app
+```
+
+### Windows
+
+Get `SwitchDesk-…-windows-x64.zip`, unzip it and run `SwitchDesk.exe`. If SmartScreen warns about an unknown publisher, choose **More info → Run anyway**. WebView2 is already part of Windows 10 and 11.
+
+### Build it yourself
+
+With Go 1.23+ installed (on a Mac also the Xcode command line tools):
 
 ```sh
 git clone https://github.com/jaba0x/switchdesk.git
 cd switchdesk
-./scripts/build-mac.sh
+./scripts/build-mac.sh          # macOS: builds, installs to /Applications and opens it
+.\scripts\build-windows.ps1     # Windows: builds build\bin\SwitchDesk.exe
 ```
 
-This builds a universal app for Apple Silicon and Intel, puts it in `/Applications` and opens it. Run the script again after a `git pull` to update.
+### Releases
 
-### Windows
-
-Download `SwitchDesk.exe` from the build artifacts of the latest run under **Actions**, or build it yourself with Go installed:
-
-```powershell
-.\scripts\build-windows.ps1
-```
-
-The exe ends up in `build\bin`. WebView2 is already part of Windows 10 and 11.
-
-### Automatic builds
-
-Pushing a tag like `v0.2.0` runs the GitHub Actions workflow, which builds both the Mac app and the Windows exe.
+The **build** workflow publishes a release with both downloads attached. Push a tag like `v0.2.0`, or run the workflow from the Actions tab and enter a version.
 
 ## Getting started
 

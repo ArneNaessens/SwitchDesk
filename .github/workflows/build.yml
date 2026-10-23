@@ -4,6 +4,13 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0 (leave empty to only build)"
+        required: false
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,18 +33,52 @@ jobs:
         run: |
           go mod tidy
           go test ./internal/...
-      - name: Build
+      - name: Work out version
+        id: ver
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="0.1.0-dev"
-          wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.Version=$VERSION"
-      - name: Zip macOS app
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"
+          else v="0.0.0-dev"; fi
+          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+      - name: Build
+        shell: bash
+        run: wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.Version=${{ steps.ver.outputs.version }}"
+      - name: Package macOS app
         if: runner.os == 'macOS'
-        run: cd build/bin && ditto -c -k --keepParent SwitchDesk.app SwitchDesk-macos.zip
+        run: |
+          codesign --force --deep --sign - build/bin/SwitchDesk.app
+          cd build/bin && ditto -c -k --keepParent SwitchDesk.app "SwitchDesk-${{ steps.ver.outputs.version }}-macos-universal.zip"
+      - name: Package Windows exe
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cd build/bin && 7z a "SwitchDesk-${{ steps.ver.outputs.version }}-windows-x64.zip" SwitchDesk.exe
       - uses: actions/upload-artifact@v4
         with:
           name: SwitchDesk-${{ runner.os }}
-          path: |
-            build/bin/SwitchDesk-macos.zip
-            build/bin/SwitchDesk.exe
+          path: build/bin/*.zip
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag' || inputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else v="${{ inputs.version }}"; tag="v${v#v}"; fi
+          cat > notes.md <<'EOF'
+          ## Downloads
+
+          **macOS** (Apple Silicon and Intel): `SwitchDesk-*-macos-universal.zip`. Unzip and drag SwitchDesk to Applications. The app isn't notarized by Apple, so the first time right-click it and choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/SwitchDesk.app`.
+
+          **Windows 10/11** (64-bit): `SwitchDesk-*-windows-x64.zip`. Unzip and run `SwitchDesk.exe`. SmartScreen may warn about an unknown publisher; choose **More info → Run anyway**.
+
+          Data from an earlier version is picked up automatically.
+          EOF
+          gh release create "$tag" dist/*.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "SwitchDesk ${tag#v}" --notes-file notes.md
