@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -83,7 +83,7 @@ The only thing the switches need is SSH, plus LLDP if you want the map.
 
 ## Install
 
-Download the latest build from **[Releases](https://github.com/jaba0x/switchdesk/releases/latest)**.
+Download the latest build from **[Releases](https://github.com/jaba0x/SwitchDesk/releases/latest)**.
 
 ### macOS
 
@@ -102,11 +102,15 @@ Get `SwitchDesk-…-windows-x64.zip`, unzip it and run `SwitchDesk.exe`. If Smar
 With Go 1.23+ installed (on a Mac also the Xcode command line tools):
 
 ```sh
-git clone https://github.com/jaba0x/switchdesk.git
+git clone https://github.com/jaba0x/SwitchDesk.git
 cd switchdesk
 ./scripts/build-mac.sh          # macOS: builds, installs to /Applications and opens it
 .\scripts\build-windows.ps1     # Windows: builds build\bin\SwitchDesk.exe
 ```
+
+### Staying up to date
+
+SwitchDesk checks GitHub for a newer release when it starts and every few hours after. When one is out, a yellow bar at the top of the window links to the download. **Settings → Check for updates** does the same on demand.
 
 ### Releases
 
@@ -155,6 +159,17 @@ internal/firmware  image library, version matching, built-in TFTP server
 ```
 
 Parsers are tested against sample output from both AOS-S and AOS-CX. If a switch prints something they misread, the **Raw output** tab shows exactly what came back, and that makes a good test case.
+
+## Author
+
+<a href="https://clihero.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/clihero-logo-white.png">
+    <img src="docs/clihero-logo.png" alt="clihero.com" width="220">
+  </picture>
+</a>
+
+Built by **Jaba Macharashvili**. More of my infra, homelab and hardware projects are on [clihero.com](https://clihero.com).
 
 ## Credits
 

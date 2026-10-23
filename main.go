@@ -15,7 +15,7 @@ import (
 var assets embed.FS
 
 // Version is set at build time with -ldflags "-X main.Version=..."
-var Version = "0.3.0"
+var Version = "0.4.0"
 
 func main() {
 	app := NewApp()
@@ -34,7 +34,7 @@ func main() {
 			TitleBar:             mac.TitleBarHiddenInset(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 			WebviewIsTransparent: false,
-			About:                &mac.AboutInfo{Title: "SwitchDesk", Message: "Aruba switch manager\nVersion " + Version},
+			About:                &mac.AboutInfo{Title: "SwitchDesk", Message: "Aruba switch manager\nVersion " + Version + "\n\nBuilt by Jaba Macharashvili\nclihero.com"},
 		},
 		Windows: &windows.Options{Theme: windows.Dark},
 	})

@@ -103,7 +103,7 @@ password manager`;
   const topo = { nodes: topoNodes, edges: [E("core", "1/1/1", "agg1", "1/1/25"), E("core", "1/1/2", "agg1", "1/1/26"), E("core", "1/1/3", "acc1", "49"), E("agg1", "1/1/27", "acc1", "50", { blocking: true }), E("core", "1/1/4", "acc2", "49"), E("agg1", "1/1/28", "acc3", "25"), E("core", "1/1/5", "acc4", "49", { up: false }), E("agg1", "1/1/20", "io1", "25"), E("core", "1/1/24", "ext:fw", "port3"), E("acc1", "12", "ext:ap", "eth0"), E("acc2", "9", "ext:ap2", "eth0")] };
   const detail = (id) => ({ ...views.find((v) => v.id === id), snapshot: id === "acc4" ? null : snap, backups: [{ name: "20261023-210400.cfg", at: mins(4), size: 2400 }, { name: "20261019-081200.cfg", at: mins(6000), size: 2300 }] });
   window.go = { main: { App: {
-    Platform: async () => "darwin", Version: async () => "0.1.0",
+    Platform: async () => "darwin", Version: async () => "0.3.0",
     GetDashboard: async () => dash, GetSwitch: async (id) => detail(id), GetTopology: async () => topo, SaveLayout: async () => {},
     GetSettings: async () => ({ firmwareAuto: "install", windowStart: "02:00", windowEnd: "05:00", pingInterval: 30, collectInterval: 15, parallel: 4, keepBackups: 20, cpuWarn: 80, memWarn: 90 }),
     Credentials: async () => [{ id: "c1", name: "Network admins", username: "admin" }],
@@ -118,6 +118,9 @@ password manager`;
     PickImportFile: async () => "/Users/jaba/Downloads/SwitchDesk-2026-10-23.sdbak",
     InspectImport: async () => ({ switches: 7, createdAt: new Date().toISOString(), history: true }),
     StartupNotice: async () => "",
+    LastUpdateCheck: async () => ({ current: "0.3.0", latest: "0.4.0", available: true, url: "https://github.com/jaba0x/SwitchDesk/releases/tag/v0.4.0" }),
+    CheckForUpdate: async () => ({ current: "0.3.0", latest: "0.4.0", available: true, url: "https://github.com/jaba0x/SwitchDesk/releases/tag/v0.4.0" }),
+    OpenURL: async () => {},
     FirmwareImages: async () => [
       { file: "WC_16_11_0021.swi", version: { branch: "WC", text: "WC.16.11.0021" }, size: 33554432, addedAt: new Date(Date.now() - 864e5).toISOString(), source: "file" },
       { file: "ArubaOS-CX_6400-6300_10_14_0001.swi", version: { branch: "FL", text: "FL.10.14.0001" }, size: 681574400, addedAt: new Date(Date.now() - 3600e3).toISOString(), source: "networkingsupport.hpe.com" },

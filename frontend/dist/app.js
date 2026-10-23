@@ -92,7 +92,10 @@ function renderSide() {
     ${item("vlans", "vlan", "VLANs")}
     ${item("firmware", "chip", "Firmware", fwCount ? `<span class="count info">${fwCount}</span>` : "")}
     ${item("settings", "gear", "Settings")}
-    <div class="side-foot">${S.dash ? `${S.dash.online} of ${S.dash.total} online` : ""}${S.dash?.collecting ? `<br>Collecting from ${plural(S.dash.collecting, "switch").replace("switchs", "switches")}` : ""}</div>`;
+    <div class="side-foot">${S.dash ? `${S.dash.online} of ${S.dash.total} online` : ""}${S.dash?.collecting ? `<br>Collecting from ${plural(S.dash.collecting, "switch").replace("switchs", "switches")}` : ""}
+      <a class="credit" onclick="openURL('https://clihero.com')" title="clihero.com">
+        <img src="clihero-logo-white.png" alt="clihero.com">
+        <span>Built by Jaba Macharashvili</span></a></div>`;
 }
 
 document.addEventListener("click", (e) => {
@@ -964,7 +967,12 @@ async function renderSettings() {
           <p class="muted" style="font-size:13px;margin:6px 0 12px">Add the switches from a .sdbak file to this computer, or replace everything here with its contents.</p>
           <button class="btn" onclick="openImport()">Import…</button></div>
       </div></div></section>
-    <p class="faint" style="font-size:12.5px;margin-top:18px">SwitchDesk ${esc(ver)}</p></div>`;
+    <section class="panel about" style="margin-top:18px"><div class="body">
+      <a class="about-logo" onclick="openURL('https://clihero.com')" title="clihero.com"><img src="clihero-logo-white.png" alt="clihero.com"></a>
+      <div><b>SwitchDesk ${esc(ver)}</b>
+        <div class="muted" style="font-size:13px;margin-top:2px">Built by Jaba Macharashvili · <a onclick="openURL('https://clihero.com')">clihero.com</a> · <a onclick="openURL('https://github.com/jaba0x/SwitchDesk')">GitHub</a></div>
+        <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button class="btn small" onclick="checkUpdate(this)">${ICON.refresh}Check for updates</button><span id="updres" class="muted" style="font-size:13px"></span></div></div>
+    </div></section></div>`;
 }
 
 // ---------- data folder, export, import ----------
@@ -1088,6 +1096,43 @@ async function delCred(id) {
   try { await call("DeleteCredential", id); renderSettings(); } catch (e) { toast(e.message, true); }
 }
 
+// ---------- app updates ----------
+function openURL(u) { call("OpenURL", u).catch(() => {}); }
+
+function skippedVersion() {
+  try { return localStorage.getItem("sd-skip-version") || ""; } catch { return ""; }
+}
+
+function showUpdate(u, force) {
+  const bar = $("#updbar");
+  if (!bar || !u?.available) return;
+  if (!force && skippedVersion() === u.latest) return;
+  S.update = u;
+  bar.innerHTML = `<div class="updbar"><b>SwitchDesk ${esc(u.latest)} is available.</b><span>You have ${esc(u.current)}.</span><span class="grow"></span>
+    <button class="ubtn" onclick="openURL('${esc(u.url)}')">Download update</button>
+    <button class="ulink" onclick="hideUpdate()">Later</button></div>`;
+  $("#content").classList.add("hasupd");
+}
+
+function hideUpdate() {
+  try { localStorage.setItem("sd-skip-version", S.update?.latest || ""); } catch {}
+  $("#updbar").innerHTML = "";
+  $("#content").classList.remove("hasupd");
+}
+
+async function checkUpdate(btn) {
+  btn?.classList.add("spin");
+  const res = $("#updres");
+  try {
+    const u = await call("CheckForUpdate");
+    if (u.available) {
+      showUpdate(u, true);
+      if (res) res.innerHTML = `Version ${esc(u.latest)} is available.`;
+    } else if (res) res.textContent = `You're on the latest version (${u.current}).`;
+  } catch (e) { if (res) res.textContent = e.message; }
+  btn?.classList.remove("spin");
+}
+
 // ---------- boot ----------
 async function boot() {
   for (let i = 0; i < 100 && !window.go?.main?.App; i++) await new Promise((r) => setTimeout(r, 30));
@@ -1102,6 +1147,8 @@ async function boot() {
   S.dash = await call("GetDashboard");
   window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
   window.runtime?.EventsOn?.("firmware-download", (p) => { if (FW.dl) { FW.dl = p; drawDl(); } });
+  window.runtime?.EventsOn?.("update-available", showUpdate);
+  call("LastUpdateCheck").then((u) => u && showUpdate(u)).catch(() => {});
   const notice = await call("StartupNotice").catch(() => "");
   if (notice) toast(notice, true);
   // keep relative times fresh even when nothing changes

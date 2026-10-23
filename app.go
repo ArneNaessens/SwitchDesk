@@ -48,6 +48,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.mgr = core.New(a.st, a.emit)
 	a.mgr.Start()
+	go a.updateLoop()
 }
 
 func (a *App) shutdown(ctx context.Context) {

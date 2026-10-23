@@ -11,8 +11,8 @@
   "info": {
     "companyName": "SwitchDesk",
     "productName": "SwitchDesk",
-    "productVersion": "0.3.0",
+    "productVersion": "0.4.0",
     "copyright": "Jaba Macharashvili",
-    "comments": "Aruba switch manager"
+    "comments": "Aruba switch manager. Built by Jaba Macharashvili, clihero.com"
   }
 }
