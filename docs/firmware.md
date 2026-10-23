@@ -11,15 +11,21 @@ Aruba switches keep two images: **primary** and **secondary**. One is running, t
 An update goes like this:
 
 1. Read both banks to see which one is running.
-2. Tell the switch to download the image from SwitchDesk into the spare bank.
+2. Copy the image into the spare bank (see below for how).
 3. Read the banks again and check the new version is really there.
 4. Make the spare bank the boot default.
 5. If you asked for a reboot: save the config, reboot from the new bank, wait for the switch to come back, read it, and confirm it runs the new version.
 
-The switch pulls the image from your computer over **TFTP** (UDP port 69). SwitchDesk runs its own small TFTP server only while an update is copying, and it only serves the image that's being installed.
+### How the image gets to the switch
+
+**AOS-S** gets the image uploaded over **SSH**: SFTP, or SCP on older firmware, straight into `/os/primary` or `/os/secondary`. It uses a second SSH connection that SwitchDesk opens to the switch, the same way it logs in for everything else, so the switch never has to reach your computer. This works over a VPN or zero trust access.
+
+The switch only accepts uploads with `ip ssh filetransfer` turned on, and turning it on also switches off its TFTP client and server. SwitchDesk reads the running config first, turns file transfer on for the upload, and then restores what was there before. The job log lists the exact commands it ran to put things back.
+
+**AOS-CX**, and any AOS-S switch that refuses the upload, pulls the image from your computer over **TFTP** (UDP port 69) instead. SwitchDesk runs its own small TFTP server only while an update is copying, and it only serves the image that's being installed. For this the switch has to be able to reach your computer. That isn't possible over most VPN and zero trust setups, and the job then fails with `Exceeded 5 retransmits` or `Peer unreachable`.
 
 !!! warning "Keep SwitchDesk open"
-    The switches download from your computer, so SwitchDesk has to keep running until the jobs finish. The first time, your Mac or Windows firewall may ask whether to allow SwitchDesk to accept connections. Allow it.
+    SwitchDesk sends or serves the image, so it has to keep running until the jobs finish. For TFTP, your Mac or Windows firewall may ask the first time whether to allow SwitchDesk to accept connections. Allow it.
 
 ## The firmware library
 

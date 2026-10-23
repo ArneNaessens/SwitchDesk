@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Firmware updates on AOS-S upload the image over SSH (SFTP or SCP), so they work over a VPN or zero trust access where the switch can't reach your computer. `ip ssh filetransfer` is turned on for the upload and the previous settings are restored afterwards.
+- TFTP stays as the fallback and for AOS-CX. A failed TFTP copy now says when the switch couldn't reach your computer.
+
 ## 0.4.0
 
 - A yellow bar tells you when a newer SwitchDesk is on GitHub; **Settings → Check for updates** checks on demand.
