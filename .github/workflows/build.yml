@@ -1,0 +1,43 @@
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+          - os: windows-latest
+            platform: windows/amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Test
+        run: |
+          go mod tidy
+          go test ./internal/...
+      - name: Build
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="0.1.0-dev"
+          wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.Version=$VERSION"
+      - name: Zip macOS app
+        if: runner.os == 'macOS'
+        run: cd build/bin && ditto -c -k --keepParent SwitchDesk.app SwitchDesk-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SwitchDesk-${{ runner.os }}
+          path: |
+            build/bin/SwitchDesk-macos.zip
+            build/bin/SwitchDesk.exe

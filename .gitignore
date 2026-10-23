@@ -1,0 +1,6 @@
+build/bin/
+build/darwin/
+build/windows/
+dist-zip/
+*.exe
+.DS_Store

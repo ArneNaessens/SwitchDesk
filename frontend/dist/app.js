@@ -1,0 +1,878 @@
+"use strict";
+/* SwitchDesk UI. Talks to the Go side through window.go.main.App (Wails bindings). */
+
+let api = null;
+const S = { dash: null, detail: null, creds: [], route: [], tab: "overview", filter: "all", query: "", modalOpen: false, consoleHist: [], showEndpoints: false };
+
+// ---------- helpers ----------
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+function ago(t) {
+  if (!t || t.startsWith("0001")) return "never";
+  const s = Math.round((Date.now() - new Date(t)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+const ICON = {
+  dash: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M10 7h.01M7 17h.01M10 17h.01"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+  map: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M7.3 11 16.7 6M7.3 13l9.4 5"/></svg>',
+  vlan: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M8 4v4M14 10v4M11 16v4"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+};
+
+function toast(text, err) {
+  const t = document.createElement("div");
+  t.className = "toast" + (err ? " err" : "");
+  t.textContent = text;
+  $("#toasts").appendChild(t);
+  setTimeout(() => t.remove(), err ? 7000 : 3500);
+}
+
+async function call(fn, ...args) {
+  try {
+    return await api[fn](...args);
+  } catch (e) {
+    throw new Error(typeof e === "string" ? e : e?.message || String(e));
+  }
+}
+
+// ---------- faceplate ----------
+function isFiber(p) { return /sfp|xfp|qsfp|fiber|dac|sr|lr/i.test(p.type || "") || /^Trk|^lag/i.test(p.name); }
+
+function leds(ports, stp, big) {
+  if (!ports || !ports.length) return `<div class="leds none">No port data yet</div>`;
+  const blocking = new Set((stp?.ports || []).filter((p) => /Blocking|Discarding/.test(p.state)).map((p) => p.port));
+  const phys = ports.filter((p) => !/^(Trk|lag)/i.test(p.name));
+  const groups = [];
+  for (const p of phys) {
+    const f = isFiber(p);
+    if (!groups.length || groups[groups.length - 1].fiber !== f) groups.push({ fiber: f, ports: [] });
+    groups[groups.length - 1].ports.push(p);
+  }
+  const html = groups.map((g) => {
+    const rows = g.ports.length > 8 ? 2 : 1;
+    const cells = g.ports.map((p) => {
+      const cls = !p.enabled ? "x" : blocking.has(p.name) ? "b" : p.up ? "u" : "";
+      const tip = `Port ${p.name}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.description ? " (" + p.description + ")" : ""}`;
+      return `<i class="${cls}" title="${esc(tip)}"></i>`;
+    }).join("");
+    return `<span class="ledgrp" style="--r:${rows}">${cells}</span>`;
+  }).join("");
+  return `<div class="leds${big ? " big" : ""}">${html}</div>`;
+}
+
+// ---------- shell ----------
+function renderSide() {
+  const r = S.route[0] || "dashboard";
+  const crit = S.dash?.critical || 0;
+  const item = (key, icon, label, extra = "") =>
+    `<button class="nav${r === key || (key === "switches" && r === "switch") ? " on" : ""}" data-go="#/${key}">${ICON[icon]}<span>${label}</span>${extra}</button>`;
+  $("#side").innerHTML = `
+    <div class="brand"><span class="brand-mark">${"<i></i>".repeat(8)}</span><b>SwitchDesk</b></div>
+    ${item("dashboard", "dash", "Dashboard", crit ? `<span class="count">${crit}</span>` : "")}
+    ${item("switches", "list", "Switches")}
+    ${item("map", "map", "Network map")}
+    ${item("vlans", "vlan", "VLANs")}
+    ${item("settings", "gear", "Settings")}
+    <div class="side-foot">${S.dash ? `${S.dash.online} of ${S.dash.total} online` : ""}${S.dash?.collecting ? `<br>Collecting from ${plural(S.dash.collecting, "switch").replace("switchs", "switches")}` : ""}</div>`;
+}
+
+document.addEventListener("click", (e) => {
+  const go = e.target.closest("[data-go]");
+  if (go) { e.preventDefault(); location.hash = go.dataset.go; }
+});
+
+window.addEventListener("hashchange", route);
+
+async function route() {
+  const h = location.hash.replace(/^#\/?/, "") || "dashboard";
+  S.route = h.split("/").map(decodeURIComponent);
+  if (S.route[0] !== "map") SDMap.stop();
+  renderSide();
+  const [page, a, b] = S.route;
+  const main = $("#main");
+  main.scrollTop = 0;
+  if (page === "switch") {
+    S.tab = b || "overview";
+    await loadDetail(a);
+  } else if (page === "switches") renderSwitches();
+  else if (page === "map") renderMap();
+  else if (page === "vlans") renderVLANs();
+  else if (page === "settings") renderSettings();
+  else renderDashboard();
+}
+
+async function refreshData() {
+  S.dash = await call("GetDashboard");
+  renderSide();
+  if (S.modalOpen) return;
+  const page = S.route[0] || "dashboard";
+  if (page === "dashboard") renderDashboard();
+  if (page === "switches") renderSwitches(true);
+  if (page === "switch" && ["overview", "stp", "ports", "neighbors", "logs"].includes(S.tab)) loadDetail(S.route[1], true);
+  if (page === "switch" && S.detail) updateDetailHead();
+  if (page === "map") SDMap.reload();
+}
+
+// ---------- dashboard ----------
+function renderDashboard() {
+  const d = S.dash;
+  if (!d) return;
+  const main = $("#main");
+  if (!d.total) {
+    main.innerHTML = `<div class="page"><div class="head"><h1>Dashboard</h1></div>
+      <div class="panel"><div class="empty"><h3>No switches yet</h3>
+      <p>Add your switches by address. SwitchDesk logs in over SSH, reads their state and keeps checking them.</p>
+      <button class="btn primary" onclick="openSwitchModal()">${ICON.plus}Add switch</button>
+      <button class="btn" onclick="openBulkModal()">Add many</button></div></div></div>`;
+    return;
+  }
+  const pct = (n) => (d.total ? (n / d.total) * 100 : 0);
+  const issues = d.issues.filter((i) => S.filter === "all" ? i.severity !== "info" : i.severity === S.filter);
+  const chip = (k, label, n) => `<button class="chip${S.filter === k ? " on" : ""}" onclick="S.filter='${k}';renderDashboard()">${label}${n !== undefined ? ` ${n}` : ""}</button>`;
+  const bySev = { critical: 0, warning: 1, info: 2, "": 3 };
+  const plates = [...d.switches].sort((a, b) => (a.status.online === b.status.online ? 0 : a.status.online ? 1 : -1) || bySev[a.worst || ""] - bySev[b.worst || ""]);
+  main.innerHTML = `<div class="page">
+    <div class="head"><h1>Dashboard</h1><span class="grow"></span>
+      <button class="btn" onclick="refreshAll(this)">${ICON.refresh}Collect now</button></div>
+    <div class="fleet">
+      <div class="fleet-line">
+        <span class="stat" data-go="#/switches"><span class="big">${d.online}</span><span class="lbl">online</span></span>
+        <span class="stat" data-go="#/switches"><span class="big ${d.offline ? "bad" : ""}">${d.offline}</span><span class="lbl">offline</span></span>
+        ${d.unknown ? `<span><span class="big faint">${d.unknown}</span><span class="lbl">not checked yet</span></span>` : ""}
+        <span><span class="big ${d.critical ? "bad" : ""}">${d.critical}</span><span class="lbl">critical</span></span>
+        <span><span class="big ${d.warning ? "warnc" : ""}">${d.warning}</span><span class="lbl">warnings</span></span>
+      </div>
+      <div class="bar" title="${d.online} online, ${d.offline} offline"><i style="width:${pct(d.online)}%;background:var(--up)"></i><i style="width:${pct(d.offline)}%;background:var(--crit)"></i></div>
+    </div>
+    <div class="dash">
+      <section class="panel">
+        <h2>Problems<span class="grow"></span><span class="chips">${chip("all", "Critical and warnings")}${chip("critical", "Critical", d.critical)}${chip("warning", "Warnings", d.warning)}${chip("info", "Notes", d.info)}</span></h2>
+        <div class="issues-scroll">${issues.length ? issues.map(issueRow).join("") : `<div class="empty"><h3>Nothing to fix</h3><p>${S.filter === "all" ? "No critical problems or warnings across your switches." : "No items in this category."}</p></div>`}</div>
+      </section>
+      <section class="panel">
+        <h2>Switches<span class="grow"></span><a data-go="#/switches" class="muted" style="font-weight:400;font-size:13px">All switches</a></h2>
+        <div class="rack issues-scroll">${plates.map(plate).join("")}</div>
+      </section>
+    </div></div>`;
+}
+
+function issueRow(i) {
+  const go = i.switchId ? `data-go="#/switch/${i.switchId}"` : "";
+  return `<div class="issue" ${go}><div><span class="sev ${i.severity}">${{ critical: "Critical", warning: "Warning", info: "Note" }[i.severity]}</span></div>
+    <div><div><span class="t">${esc(i.title)}</span> <span class="w">on ${esc(i.switchName)}</span></div>${i.detail ? `<div class="d">${esc(i.detail)}</div>` : ""}</div></div>`;
+}
+
+function statusDot(v) {
+  if (!v.status.checked) return `<span class="dot" title="Not checked yet"></span>`;
+  return v.status.online ? `<span class="dot up" title="Online"></span>` : `<span class="dot down" title="Offline"></span>`;
+}
+
+function plate(v) {
+  const s = v.summary;
+  const name = v.name || s?.hostname || v.host;
+  const meta = !v.status.online && v.status.checked ? `<span class="bad">offline ${ago(v.status.since)}</span>` :
+    `${esc(v.host)}${v.status.latencyMs ? ` <span class="faint">${v.status.latencyMs} ms</span>` : ""}`;
+  return `<div class="plate" data-go="#/switch/${v.id}">
+    <div class="nm">${statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
+    <div class="meta">${meta}</div>
+    <div class="leds-wrap" style="grid-column:1/-1">${s?.ports?.length ? leds(s.ports, { ports: s.ports.filter((p) => p.blocking).map((p) => ({ port: p.name, state: "Blocking" })) }) : s ? `<div class="faint" style="font-size:12.5px">${esc(s.model || s.family)} ${s.portsTotal ? `· ${s.portsUp}/${s.portsTotal} ports up` : ""}</div>` : `<div class="faint" style="font-size:12.5px">No data collected yet</div>`}</div>
+  </div>`;
+}
+
+async function refreshAll(btn) {
+  btn?.classList.add("spin");
+  await call("RefreshAll");
+  toast("Collecting from all online switches");
+  setTimeout(() => btn?.classList.remove("spin"), 1500);
+}
+
+// ---------- switches list ----------
+function renderSwitches(soft) {
+  const d = S.dash;
+  if (!d) return;
+  const q = S.query.toLowerCase();
+  const rows = d.switches.filter((v) => !q || [v.name, v.host, v.site, v.summary?.hostname, v.summary?.model, v.summary?.software].join(" ").toLowerCase().includes(q));
+  const table = `<table><thead><tr><th></th><th>Name</th><th>Address</th><th>Site</th><th>Type</th><th>Model</th><th>Software</th><th>Uptime</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">Ports up</th><th>STP</th><th>Problems</th><th>Collected</th></tr></thead><tbody>
+    ${rows.map((v) => {
+      const s = v.summary || {};
+      return `<tr class="click" data-go="#/switch/${v.id}"><td>${statusDot(v)}</td><td>${esc(v.name || s.hostname || "")}</td><td class="mono">${esc(v.host)}</td><td>${esc(v.site)}</td>
+      <td>${esc(s.family || "")}</td><td>${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${esc(s.uptime || "")}</td>
+      <td class="num">${s.cpu >= 0 && s.cpu !== undefined ? s.cpu + "%" : ""}</td><td class="num">${s.memory >= 0 && s.memory !== undefined ? s.memory + "%" : ""}</td>
+      <td class="num">${s.portsTotal ? `${s.portsUp}/${s.portsTotal}` : ""}</td><td>${esc(s.stpRole || "")}</td>
+      <td>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  if (soft && $("#swtable")) { $("#swtable").innerHTML = table; return; }
+  $("#main").innerHTML = `<div class="page">
+    <div class="head"><h1>Switches</h1><span class="sub">${d.total}</span><span class="grow"></span>
+      <input type="text" class="search" placeholder="Filter by name, address, model" value="${esc(S.query)}" oninput="S.query=this.value;renderSwitches(true)">
+      <button class="btn" onclick="openBulkModal()">Add many</button>
+      <button class="btn primary" onclick="openSwitchModal()">${ICON.plus}Add switch</button></div>
+    <div class="panel" id="swtable">${d.total ? table : `<div class="empty"><h3>No switches yet</h3><p>Add one by address, or paste a list with Add many.</p></div>`}</div></div>`;
+}
+
+// ---------- switch detail ----------
+async function loadDetail(id, soft) {
+  try {
+    S.detail = await call("GetSwitch", id);
+  } catch (e) {
+    $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Switch not found</h3><a data-go="#/switches">Back to switches</a></div></div>`;
+    return;
+  }
+  renderDetail(soft);
+}
+
+function updateDetailHead() {
+  const v = S.dash?.switches.find((x) => x.id === S.detail.id);
+  if (v && $("#detail-status")) $("#detail-status").innerHTML = detailStatus(v);
+}
+
+function detailStatus(v) {
+  if (v.status.collecting) return `<span class="faint">Collecting…</span>`;
+  if (!v.status.checked) return `<span class="faint">Checking…</span>`;
+  return v.status.online ? `<span class="ok">Online</span> <span class="faint">${v.status.latencyMs} ms</span>` : `<span class="bad">Offline since ${new Date(v.status.since).toLocaleString()}</span>`;
+}
+
+const TABS = [["overview", "Overview"], ["stp", "Spanning tree"], ["ports", "Ports"], ["vlans", "VLANs"], ["neighbors", "Neighbors"], ["config", "Config"], ["logs", "Logs"], ["console", "Console"], ["raw", "Raw output"]];
+
+function renderDetail(soft) {
+  const d = S.detail, snap = d.snapshot, s = d.summary;
+  const name = d.name || s?.hostname || d.host;
+  const counts = { vlans: snap?.vlans?.length, neighbors: snap?.neighbors?.length, ports: snap?.ports?.length };
+  const body = snap ? tabBody(S.tab, d, snap) : noDataYet(d);
+  if (soft && $("#tabbody")) {
+    $("#tabbody").innerHTML = body;
+    $("#detail-status").innerHTML = detailStatus(d);
+    return;
+  }
+  const banners = [];
+  if (d.status.hostKeyChanged) banners.push(`<div class="banner"><div class="grow"><b>The SSH host key changed.</b> SwitchDesk stopped connecting to protect your credentials. If this switch was replaced or reset, trust the new key.</div><button class="btn" onclick="trustKey()">Trust new key</button></div>`);
+  if (d.status.authFailed) banners.push(`<div class="banner"><div class="grow"><b>Login failed.</b> ${esc(d.status.collectError)}. Fix the credentials, then collect again.</div><button class="btn" onclick="openSwitchModal(S.detail)">Edit switch</button></div>`);
+  $("#main").innerHTML = `<div class="page">
+    <div class="head"><button class="btn small" data-go="#/switches" title="Back">${ICON.back}</button><h1>${esc(name)}</h1><span id="detail-status">${detailStatus(d)}</span><span class="grow"></span>
+      <button class="btn" onclick="collectOne(this)">${ICON.refresh}Collect now</button>
+      <button class="btn" onclick="openSwitchModal(S.detail)">Edit</button></div>
+    <div class="idline"><span class="mono"><b>${esc(d.host)}</b>${d.port !== 22 ? ":" + d.port : ""}</span>
+      ${s ? `<span>${esc(s.family)}</span><span><b>${esc(s.model || "Unknown model")}</b></span><span class="mono">${esc(s.software)}</span><span>Up ${esc(s.uptime || "?")}</span>` : ""}
+      ${d.site ? `<span>Site <b>${esc(d.site)}</b></span>` : ""}
+      ${s ? `<span class="faint">Collected ${ago(s.collectedAt)}${snap?.duration ? ` in ${snap.duration}` : ""}</span>` : ""}</div>
+    ${banners.join("")}
+    <div class="tabs">${TABS.map(([k, l]) => `<button class="tab${S.tab === k ? " on" : ""}" data-go="#/switch/${d.id}/${k}">${l}${counts[k] ? `<span class="n">${counts[k]}</span>` : ""}</button>`).join("")}</div>
+    <div id="tabbody">${body}</div></div>`;
+  afterTab();
+}
+
+function noDataYet(d) {
+  return `<div class="panel"><div class="empty"><h3>No data collected yet</h3>
+    <p>${d.status.collectError ? esc(d.status.collectError) : d.status.online ? "Collection starts automatically. Use Collect now to start it immediately." : "The switch isn't answering on SSH right now."}</p>
+    <button class="btn" onclick="collectOne()">${ICON.refresh}Collect now</button></div></div>`;
+}
+
+async function collectOne(btn) {
+  btn?.classList.add("spin");
+  await call("Refresh", S.detail.id);
+  toast("Collecting from " + (S.detail.name || S.detail.host));
+  setTimeout(() => btn?.classList.remove("spin"), 1500);
+}
+
+async function trustKey() {
+  await call("TrustHostKey", S.detail.id);
+  toast("New host key will be trusted on the next connection");
+}
+
+function tabBody(tab, d, snap) {
+  switch (tab) {
+    case "stp": return tabSTP(snap);
+    case "ports": return tabPorts(snap);
+    case "vlans": return tabVLANs(d, snap);
+    case "neighbors": return tabNeighbors(snap);
+    case "config": return tabConfig(d, snap);
+    case "logs": return tabLogs(snap);
+    case "console": return tabConsole(d);
+    case "raw": return tabRaw(snap);
+    default: return tabOverview(d, snap);
+  }
+}
+
+function meter(v, warn) {
+  if (v === undefined || v < 0) return `<span class="faint">unknown</span>`;
+  const c = v >= warn ? "var(--crit)" : v >= warn * 0.75 ? "var(--warn)" : "var(--up)";
+  return `<span class="meter"><span class="track"><i style="width:${Math.min(v, 100)}%;background:${c}"></i></span>${v}%</span>`;
+}
+
+function checkRow(good, text, detail) {
+  const ico = good === null ? `<span class="ico faint">–</span>` : good ? `<span class="ico ok">✓</span>` : `<span class="ico bad">✕</span>`;
+  return `<div class="check-row">${ico}<span>${text}${detail ? ` <span class="faint">${esc(detail)}</span>` : ""}</span></div>`;
+}
+
+function tabOverview(d, snap) {
+  const f = snap.facts, st = snap.stp, sec = snap.security, set = S.settings || { cpuWarn: 80, memWarn: 90 };
+  const isS = snap.family === "aos-s";
+  const env = snap.env || [];
+  return `${leds(snap.ports, st, true)}<div style="height:16px"></div>
+  <div class="grid2">
+    <section class="panel"><h2>Problems on this switch</h2>
+      ${d.issues.length ? d.issues.map(issueRow).join("") : `<div class="empty" style="padding:22px"><h3>Nothing to fix</h3></div>`}</section>
+    <section class="panel"><h2>System</h2><div class="body"><dl class="kv">
+      <dt>Hostname</dt><dd>${esc(f.hostname)}</dd><dt>Model</dt><dd>${esc(f.model)}</dd><dt>Serial</dt><dd class="mono">${esc(f.serial)}</dd>
+      <dt>Base MAC</dt><dd class="mono">${esc(f.baseMac)}</dd><dt>Software</dt><dd class="mono">${esc(f.software)}</dd><dt>Uptime</dt><dd>${esc(f.uptime)}</dd>
+      <dt>CPU</dt><dd>${meter(f.cpu, set.cpuWarn)}</dd><dt>Memory</dt><dd>${meter(f.memory, set.memWarn)}</dd>
+      ${f.location ? `<dt>Location</dt><dd>${esc(f.location)}</dd>` : ""}${f.contact ? `<dt>Contact</dt><dd>${esc(f.contact)}</dd>` : ""}
+      ${f.configSaved !== undefined && f.configSaved !== null ? `<dt>Startup config</dt><dd>${f.configSaved ? `<span class="ok">Saved</span>` : `<span class="warnc">Unsaved changes</span>`}</dd>` : ""}
+    </dl></div></section>
+    <section class="panel"><h2>Management access</h2><div class="body">
+      ${checkRow(sec.sshEnabled, "SSH enabled", sec.sshPort ? "port " + sec.sshPort + (sec.sshVersion ? ", version " + sec.sshVersion : "") : "")}
+      ${checkRow(!sec.telnetEnabled, sec.telnetEnabled ? "Telnet is enabled" : "Telnet disabled")}
+      ${isS ? checkRow(!sec.httpPlain, sec.httpPlain ? "Plain HTTP web management enabled" : "Plain HTTP disabled") : ""}
+      ${checkRow(sec.httpsEnabled ? true : null, sec.httpsEnabled ? "HTTPS web management" : "HTTPS not configured")}
+      ${checkRow(sec.snmpCommunities?.length ? !sec.snmpDefault : null, sec.snmpCommunities?.length ? (sec.snmpDefault ? "Default SNMP community configured" : "SNMP communities set") : "SNMP not configured", sec.snmpCommunities?.length ? plural(sec.snmpCommunities.length, "community").replace("communitys", "communities") : "")}
+      ${isS ? checkRow(sec.managerPassword, sec.managerPassword ? "Manager password set" : "No manager password") : ""}
+      ${checkRow(sec.ntpServers?.length > 0, sec.ntpServers?.length ? "Time sync" : "No NTP/SNTP server", (sec.ntpServers || []).join(", "))}
+      ${checkRow(sec.logServers?.length ? true : null, sec.logServers?.length ? "Remote syslog" : "No syslog server", (sec.logServers || []).join(", "))}
+      ${checkRow(sec.aaa?.length ? true : null, sec.aaa?.length ? "RADIUS/TACACS+ configured" : "Local accounts only")}
+    </div></section>
+    <section class="panel"><h2>Spanning tree<span class="grow"></span><a data-go="#/switch/${d.id}/stp" style="font-weight:400;font-size:13px">Details</a></h2><div class="body"><dl class="kv">
+      <dt>Status</dt><dd>${!st.known ? `<span class="faint">unknown</span>` : st.enabled ? `<span class="ok">Enabled</span>` : `<span class="bad">Disabled</span>`}</dd>
+      ${st.enabled ? `<dt>Mode</dt><dd>${esc(st.mode)}</dd><dt>Role</dt><dd>${st.isRoot ? "Root bridge" : "Member, root port " + esc(st.rootPort || "?")}</dd>
+      <dt>Priority</dt><dd>${esc(st.bridgePriority || "?")}${st.rootPriority ? ` <span class="faint">(root ${esc(st.rootPriority)})</span>` : ""}</dd>
+      <dt>Topology changes</dt><dd>${st.topologyChanges}${st.lastChange ? ` <span class="faint">last ${esc(st.lastChange)}</span>` : ""}</dd>` : ""}
+    </dl></div></section>
+    ${env.length ? `<section class="panel"><h2>Hardware</h2><div class="body">${env.map((e) => checkRow(e.ok, { fan: "Fan", psu: "Power supply", temp: "Temperature" }[e.kind] + " " + esc(e.name), e.status)).join("")}</div></section>` : ""}
+    ${snap.errors?.length ? `<section class="panel"><h2>Collection notes</h2><div class="body faint" style="font-size:13px">${snap.errors.map(esc).join("<br>")}</div></section>` : ""}
+  </div>`;
+}
+
+function tabSTP(snap) {
+  const st = snap.stp;
+  if (!st.known) return `<div class="panel"><div class="empty"><h3>No spanning-tree data</h3><p>The switch didn't answer "show spanning-tree". Check Raw output.</p></div></div>`;
+  return `<div class="grid2" style="margin-bottom:16px"><section class="panel"><h2>Bridge</h2><div class="body"><dl class="kv">
+    <dt>Status</dt><dd>${st.enabled ? `<span class="ok">Enabled</span>` : `<span class="bad">Disabled</span>`}</dd><dt>Mode</dt><dd>${esc(st.mode)}</dd>
+    <dt>This bridge</dt><dd class="mono">${esc(st.bridgeMac)} <span class="faint">priority ${esc(st.bridgePriority)}</span></dd>
+    <dt>Root bridge</dt><dd class="mono">${esc(st.rootMac)} <span class="faint">priority ${esc(st.rootPriority)}</span></dd>
+    <dt>Role</dt><dd>${st.isRoot ? "This switch is root" : "Root reached via port " + esc(st.rootPort)}</dd>
+    <dt>Topology changes</dt><dd>${st.topologyChanges}</dd><dt>Last change</dt><dd>${esc(st.lastChange || "-")}</dd></dl></div></section></div>
+    <section class="panel"><h2>Ports in spanning tree</h2>${st.ports?.length ? `<table><thead><tr><th>Port</th><th>Role</th><th>State</th><th class="num">Cost</th></tr></thead><tbody>
+    ${st.ports.filter((p) => p.role !== "Disabled").map((p) => `<tr><td class="mono">${esc(p.port)}</td><td>${esc(p.role)}</td><td class="${/Blocking|Discarding/.test(p.state) ? "warnc" : p.state === "Forwarding" ? "ok" : ""}">${esc(p.state)}</td><td class="num">${esc(p.cost)}</td></tr>`).join("")}
+    </tbody></table><div class="faint" style="padding:8px 12px;font-size:12.5px">${st.ports.filter((p) => p.role === "Disabled").length} disabled ports hidden</div>` : `<div class="empty">No port table in the output.</div>`}</section>`;
+}
+
+function tabPorts(snap) {
+  const p = snap.ports || [];
+  const memb = portVLANs(snap);
+  return `${leds(p, snap.stp, true)}<div style="height:16px"></div><section class="panel">
+    <table><thead><tr><th>Port</th><th>Status</th><th>Enabled</th><th>Speed</th><th>Type</th><th>VLANs</th><th>Description</th></tr></thead><tbody>
+    ${p.map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="${x.up ? "ok" : "faint"}">${x.up ? "Up" : "Down"}</td><td>${x.enabled ? "Yes" : `<span class="warnc">No</span>`}</td>
+      <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td><td>${esc(x.description)}</td></tr>`).join("")}
+    </tbody></table></section>`;
+}
+
+function portVLANs(snap) {
+  const m = {};
+  for (const v of snap.vlans || []) {
+    for (const p of v.untagged || []) m[p] = (m[p] ? m[p] + " " : "") + v.id + "u";
+    for (const p of v.tagged || []) m[p] = (m[p] ? m[p] + " " : "") + v.id + "t";
+  }
+  return m;
+}
+
+function compress(ports) {
+  if (!ports?.length) return "";
+  const groups = new Map();
+  const other = [];
+  for (const p of ports) {
+    const m = /^(.*?)(\d+)$/.exec(p);
+    if (!m) { other.push(p); continue; }
+    if (!groups.has(m[1])) groups.set(m[1], []);
+    groups.get(m[1]).push(+m[2]);
+  }
+  const parts = [];
+  for (const [pre, ns] of groups) {
+    ns.sort((a, b) => a - b);
+    let s = ns[0], prev = ns[0];
+    const emit = () => parts.push(s === prev ? pre + s : `${pre}${s}-${pre}${prev}`);
+    for (const n of ns.slice(1)) { if (n === prev + 1) { prev = n; continue; } emit(); s = prev = n; }
+    emit();
+  }
+  return parts.concat(other).join(", ");
+}
+
+function tabVLANs(d, snap) {
+  const v = snap.vlans || [];
+  const canEdit = snap.family !== "instant-on";
+  return `<section class="panel"><h2>VLANs<span class="grow"></span>${canEdit ? `<button class="btn small primary" onclick="openVLANEditor()">${ICON.plus}New VLAN</button>` : `<span class="faint" style="font-weight:400;font-size:13px">Instant On VLANs are changed in the Instant On portal</span>`}</h2>
+    ${v.length ? `<table><thead><tr><th class="num">ID</th><th>Name</th><th>IP address</th><th>Untagged</th><th>Tagged</th><th></th></tr></thead><tbody>
+    ${v.map((x) => `<tr><td class="num mono">${x.id}</td><td>${esc(x.name)}</td><td class="mono">${esc(x.ip)}</td><td class="mono">${esc(compress(x.untagged))}</td><td class="mono">${esc(compress(x.tagged))}</td>
+      <td style="white-space:nowrap;text-align:right">${canEdit ? `<button class="btn small" onclick="openVLANEditor(${x.id})">Edit</button> ${x.id !== 1 ? `<button class="btn small danger" onclick="deleteVLAN(${x.id})">Delete</button>` : ""}` : ""}</td></tr>`).join("")}
+    </tbody></table>` : `<div class="empty">No VLANs found in the configuration.</div>`}</section>`;
+}
+
+function tabNeighbors(snap) {
+  const n = snap.neighbors || [];
+  const byIP = new Map((S.dash?.switches || []).map((s) => [s.host, s]));
+  const byName = new Map((S.dash?.switches || []).map((s) => [(s.summary?.hostname || s.name || "").toLowerCase(), s]));
+  return `<section class="panel">${n.length ? `<table><thead><tr><th>Local port</th><th>Neighbor</th><th>Remote port</th><th>Address</th><th>Protocol</th><th>Capabilities</th><th>Description</th></tr></thead><tbody>
+    ${n.map((x) => {
+      const known = byIP.get(x.mgmtIp) || byName.get((x.sysName || "").toLowerCase());
+      return `<tr><td class="mono">${esc(x.localPort)}</td><td>${known ? `<a data-go="#/switch/${known.id}">${esc(x.sysName)}</a>` : esc(x.sysName)}</td><td class="mono">${esc(x.portDescr && /^[0-9a-f]{2}([ :-]?[0-9a-f]{2}){5}$/i.test(x.portId) ? x.portDescr : x.portId)}</td>
+      <td class="mono">${esc(x.mgmtIp)}</td><td>${x.protocol.toUpperCase()}</td><td>${esc(x.capabilities)}</td><td class="faint" style="max-width:340px">${esc(x.description)}</td></tr>`;
+    }).join("")}</tbody></table>` : `<div class="empty"><h3>No LLDP or CDP neighbors</h3><p>Make sure LLDP is enabled on this switch and its peers.</p></div>`}</section>`;
+}
+
+function tabLogs(snap) {
+  const l = snap.logs || [];
+  const sev = { E: ["Error", "critical"], M: ["Major", "critical"], W: ["Warning", "warning"], I: ["Info", ""], D: ["Debug", ""] };
+  return `<section class="panel">${l.length ? `<table><tbody>${l.map((x) => `<tr><td style="width:84px">${sev[x.severity]?.[1] ? `<span class="sev ${sev[x.severity][1]}">${sev[x.severity][0]}</span>` : `<span class="faint">${sev[x.severity]?.[0] || x.severity}</span>`}</td><td class="mono" style="user-select:text">${esc(x.text)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No log lines collected.</div>`}</section>`;
+}
+
+let cfgView = { name: "", text: "", compare: "", search: "" };
+
+function tabConfig(d, snap) {
+  if (!cfgView.text || cfgView.forId !== d.id) cfgView = { forId: d.id, name: "", text: snap.runningConfig || "", compare: "", search: "" };
+  const list = [`<div class="${!cfgView.name ? "on" : ""}" onclick="showBackup('')">Running config<div class="faint" style="font-size:12px">${ago(snap.collectedAt)}</div></div>`]
+    .concat((d.backups || []).map((b) => `<div class="${cfgView.name === b.name ? "on" : ""}" onclick="showBackup('${b.name}')">${new Date(b.at).toLocaleString()}<div class="faint" style="font-size:12px">${(b.size / 1024).toFixed(1)} KB</div></div>`));
+  return `<div class="split"><section class="panel"><h2>Saved copies</h2><div class="list-pick">${list.join("")}</div>
+    <div class="faint" style="padding:10px 12px;font-size:12.5px">A copy is kept each time the config changes.</div></section>
+    <section><div class="row" style="margin-bottom:10px;align-items:center">
+      <input type="text" id="cfgsearch" placeholder="Find in config" value="${esc(cfgView.search)}" oninput="cfgView.search=this.value;drawConfig()">
+      <select id="cfgcmp" onchange="compareBackup(this.value)" style="max-width:260px"><option value="">Compare with…</option>${(d.backups || []).filter((b) => b.name !== cfgView.name).map((b) => `<option value="${b.name}" ${cfgView.compare === b.name ? "selected" : ""}>${new Date(b.at).toLocaleString()}</option>`).join("")}</select>
+      <span style="flex:none"><button class="btn" onclick="exportConfig()">Save as file</button></span></div>
+      <pre class="code mono" id="cfgpre"></pre></section></div>`;
+}
+
+async function showBackup(name) {
+  cfgView.name = name;
+  cfgView.compare = "";
+  cfgView.text = name ? await call("GetBackup", S.detail.id, name) : S.detail.snapshot.runningConfig;
+  $("#tabbody").innerHTML = tabConfig(S.detail, S.detail.snapshot);
+  afterTab();
+}
+
+async function compareBackup(name) {
+  cfgView.compare = name;
+  cfgView.cmpText = name ? await call("GetBackup", S.detail.id, name) : "";
+  drawConfig();
+}
+
+function drawConfig() {
+  const pre = $("#cfgpre");
+  if (!pre) return;
+  if (cfgView.compare) {
+    const ops = diffLines(cfgView.cmpText.split("\n"), cfgView.text.split("\n"));
+    const changed = ops.filter((o) => o[0] !== " ").length;
+    pre.innerHTML = changed ? ops.map(([t, l]) => t === "+" ? `<span class="add">+ ${esc(l)}</span>` : t === "-" ? `<span class="del">- ${esc(l)}</span>` : `  ${esc(l)}\n`).join("") : "No differences.";
+    return;
+  }
+  const q = cfgView.search.trim();
+  let html = esc(cfgView.text || "No configuration collected.");
+  if (q) html = html.replace(new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), (m) => `<mark>${m}</mark>`);
+  pre.innerHTML = html;
+  pre.querySelector("mark")?.scrollIntoView({ block: "center" });
+}
+
+// small LCS diff; configs are a few thousand lines at most
+function diffLines(a, b) {
+  const n = a.length, m = b.length;
+  if (n * m > 9e6) return [["-", `(${n} lines)`], ["+", `(${m} lines) too large to compare here`]];
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push([" ", a[i]]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(["-", a[i++]]);
+    else out.push(["+", b[j++]]);
+  }
+  while (i < n) out.push(["-", a[i++]]);
+  while (j < m) out.push(["+", b[j++]]);
+  return out;
+}
+
+async function exportConfig() {
+  const d = S.detail;
+  const name = `${(d.summary?.hostname || d.name || d.host).replace(/[^\w.-]/g, "_")}-${cfgView.name ? cfgView.name.replace(".cfg", "") : "running"}.cfg`;
+  try {
+    const p = await call("ExportText", name, cfgView.text);
+    toast("Saved to " + p);
+  } catch (e) { if (e.message !== "cancelled") toast(e.message, true); }
+}
+
+function tabConsole(d) {
+  return `<section class="panel"><h2>Run a command<span class="grow"></span><span class="faint" style="font-weight:400;font-size:13px">Read-only: show, ping and traceroute</span></h2><div class="body">
+    <form class="row" onsubmit="runCmd(event)" style="align-items:center"><input type="text" id="cmd" class="mono" placeholder="show interfaces brief" autocomplete="off" spellcheck="false" onkeydown="cmdHistory(event)"><span style="flex:none"><button class="btn primary" id="runbtn">Run</button></span></form>
+    <div style="height:12px"></div><pre class="code mono console-out" id="cmdout">${esc(S.consoleOut || "Output appears here.")}</pre></div></section>`;
+}
+
+let histPos = -1;
+function cmdHistory(e) {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  e.preventDefault();
+  const h = S.consoleHist;
+  if (!h.length) return;
+  histPos = e.key === "ArrowUp" ? Math.min(histPos + 1, h.length - 1) : Math.max(histPos - 1, -1);
+  e.target.value = histPos < 0 ? "" : h[histPos];
+}
+
+async function runCmd(e) {
+  e.preventDefault();
+  const cmd = $("#cmd").value.trim();
+  if (!cmd) return;
+  S.consoleHist = [cmd, ...S.consoleHist.filter((c) => c !== cmd)].slice(0, 50);
+  histPos = -1;
+  const btn = $("#runbtn");
+  btn.disabled = true;
+  $("#cmdout").textContent = "Running " + cmd + " …";
+  try {
+    S.consoleOut = `# ${cmd}\n` + (await call("RunCommand", S.detail.id, cmd));
+  } catch (err) {
+    S.consoleOut = `# ${cmd}\n${err.message}`;
+  }
+  btn.disabled = false;
+  if ($("#cmdout")) $("#cmdout").textContent = S.consoleOut;
+}
+
+function tabRaw(snap) {
+  const keys = Object.keys(snap.raw || {});
+  const cur = S.rawKey && keys.includes(S.rawKey) ? S.rawKey : keys[0];
+  return `<div class="split"><section class="panel"><div class="list-pick">${keys.map((k) => `<div class="${k === cur ? "on" : ""}" onclick="S.rawKey='${k}';$('#tabbody').innerHTML=tabRaw(S.detail.snapshot)">${esc(k)}</div>`).join("")}</div></section>
+    <pre class="code mono">${esc(snap.raw?.[cur] || "(empty)")}</pre></div>`;
+}
+
+function afterTab() {
+  if (S.tab === "config") drawConfig();
+  if (S.tab === "console") $("#cmd")?.focus();
+}
+
+// ---------- VLAN editor ----------
+function openVLANEditor(id) {
+  const snap = S.detail.snapshot;
+  const existing = id ? snap.vlans.find((v) => v.id === id) : null;
+  const ports = new Set((snap.ports || []).map((p) => p.name));
+  for (const v of snap.vlans || []) for (const p of [...(v.tagged || []), ...(v.untagged || [])]) ports.add(p);
+  const order = [...ports].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const state = {};
+  for (const p of order) state[p] = "";
+  if (existing) {
+    for (const p of existing.untagged || []) state[p] = "U";
+    for (const p of existing.tagged || []) state[p] = "T";
+  }
+  const orig = { ...state };
+  const m = modal(`<h2>${existing ? `Edit VLAN ${id}` : "New VLAN"}</h2><div class="body">
+    <div class="row"><label class="f" style="flex:0 0 120px"><span>VLAN ID</span><input type="number" id="vid" min="1" max="4094" value="${id || ""}" ${existing ? "disabled" : ""}></label>
+      <label class="f"><span>Name</span><input type="text" id="vname" maxlength="32" value="${esc(existing?.name || "")}"></label></div>
+    <div class="muted" style="font-size:13px">Click a port to cycle: untagged, tagged, not a member.</div>
+    <div class="legend"><span><i style="background:var(--up)"></i>Untagged (access)</span><span><i style="background:var(--info)"></i>Tagged (trunk)</span></div>
+    <div class="portpick" id="pp">${order.map((p) => `<button type="button" class="pp ${state[p]}" data-p="${esc(p)}">${esc(p)}${state[p] ? `<sup>${state[p]}</sup>` : ""}</button>`).join("")}</div>
+    <div style="height:14px"></div><label class="check"><input type="checkbox" id="vsave" checked> Save to startup config (write memory)</label>
+    <div id="verr"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="vprev">Review changes</button></div>`, true);
+  $("#pp", m).addEventListener("click", (e) => {
+    const b = e.target.closest(".pp");
+    if (!b) return;
+    const p = b.dataset.p;
+    state[p] = { "": "U", U: "T", T: "" }[state[p]];
+    b.className = "pp " + state[p];
+    b.innerHTML = esc(p) + (state[p] ? `<sup>${state[p]}</sup>` : "");
+  });
+  $("#vprev", m).onclick = async () => {
+    const ch = {
+      action: existing ? "update" : "create",
+      id: +$("#vid", m).value,
+      name: $("#vname", m).value.trim() !== (existing?.name || "") ? $("#vname", m).value.trim() : "",
+      addUntagged: order.filter((p) => state[p] === "U" && orig[p] !== "U"),
+      addTagged: order.filter((p) => state[p] === "T" && orig[p] !== "T"),
+      removePorts: order.filter((p) => state[p] === "" && orig[p] !== ""),
+      save: $("#vsave", m).checked,
+    };
+    if (existing && !ch.name && !ch.addUntagged.length && !ch.addTagged.length && !ch.removePorts.length) {
+      $("#verr", m).innerHTML = `<div class="msg err">Nothing changed.</div>`;
+      return;
+    }
+    try {
+      const cmds = await call("PreviewVLAN", S.detail.id, ch);
+      closeModal();
+      confirmCommands(ch, cmds);
+    } catch (e) {
+      $("#verr", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+function deleteVLAN(id) {
+  const ch = { action: "delete", id, save: true };
+  call("PreviewVLAN", S.detail.id, ch).then((cmds) => confirmCommands(ch, cmds)).catch((e) => toast(e.message, true));
+}
+
+function confirmCommands(ch, cmds) {
+  const name = S.detail.name || S.detail.summary?.hostname || S.detail.host;
+  const m = modal(`<h2>${ch.action === "delete" ? `Delete VLAN ${ch.id}` : "Review changes"}</h2><div class="body">
+    <p class="muted" style="margin-top:0">These lines will be sent to <b style="color:var(--text)">${esc(name)}</b>. Sending stops at the first line the switch rejects${ch.save ? ", and nothing is saved to startup config in that case" : ""}.</p>
+    <pre class="code mono" id="vtx">${esc(cmds.join("\n"))}</pre><div id="vres"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="vapply">${ch.action === "delete" ? "Delete VLAN" : "Apply to switch"}</button></div>`, true);
+  $("#vapply", m).onclick = async () => {
+    const b = $("#vapply", m);
+    b.disabled = true;
+    b.textContent = "Sending…";
+    try {
+      const r = await call("ApplyVLAN", S.detail.id, ch);
+      $("#vtx", m).textContent = r.transcript.join("\n");
+      $("#vres", m).innerHTML = r.ok ? `<div class="msg okm">Done. The switch is being re-read.</div>` : `<div class="msg err">${esc(r.error)}</div>`;
+      b.remove();
+      $("[data-close]", m).textContent = "Close";
+    } catch (e) {
+      $("#vres", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+      b.disabled = false;
+      b.textContent = "Try again";
+    }
+  };
+}
+
+// ---------- modals ----------
+function modal(html, wide) {
+  closeModal();
+  const v = document.createElement("div");
+  v.className = "veil";
+  v.innerHTML = `<div class="modal${wide ? " wide" : ""}" role="dialog">${html}</div>`;
+  v.addEventListener("click", (e) => { if (e.target === v || e.target.closest("[data-close]")) closeModal(); });
+  document.body.appendChild(v);
+  S.modalOpen = true;
+  setTimeout(() => v.querySelector("input:not([disabled]),select,textarea")?.focus(), 30);
+  return v;
+}
+function closeModal() {
+  $(".veil")?.remove();
+  if (S.modalOpen) { S.modalOpen = false; refreshData(); }
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.modalOpen) closeModal(); });
+
+function credOptions(sel) {
+  return S.creds.map((c) => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)} (${esc(c.username)})</option>`).join("") + `<option value="__new">New credentials…</option>`;
+}
+const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"], ["instant-on", "Instant On"]];
+
+async function openSwitchModal(sw) {
+  S.creds = await call("Credentials");
+  const e = sw || { port: 22, family: "auto", credentialId: S.creds[0]?.id };
+  const m = modal(`<h2>${sw ? "Edit switch" : "Add switch"}</h2><div class="body">
+    <div class="row"><label class="f"><span>Address</span><input type="text" id="sh" class="mono" placeholder="10.0.0.11" value="${esc(e.host || "")}"></label>
+      <label class="f" style="flex:0 0 90px"><span>SSH port</span><input type="number" id="sp" value="${e.port || 22}"></label></div>
+    <label class="f"><span>Name <span class="faint">(optional, the hostname is used otherwise)</span></span><input type="text" id="sn" value="${esc(e.name || "")}"></label>
+    <div class="row"><label class="f"><span>Credentials</span><select id="sc">${credOptions(e.credentialId)}</select></label>
+      <label class="f"><span>Switch type</span><select id="sf">${FAMILIES.map(([k, l]) => `<option value="${k}" ${k === (e.family || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <div id="newcred" style="display:none" class="row"><label class="f"><span>Username</span><input type="text" id="cu" value="admin"></label><label class="f"><span>Password</span><input type="password" id="cp"></label></div>
+    <label class="f"><span>Site</span><input type="text" id="ss" value="${esc(e.site || "")}"></label>
+    <label class="f"><span>Notes</span><input type="text" id="so" value="${esc(e.notes || "")}"></label>
+    <div id="smsg"></div></div>
+    <div class="foot">${sw ? `<button class="btn danger" id="sdel">Remove</button>` : ""}<span class="grow"></span><button class="btn" id="stest">Test connection</button><button class="btn" data-close>Cancel</button><button class="btn primary" id="ssave">${sw ? "Save" : "Add switch"}</button></div>`);
+  const sc = $("#sc", m);
+  const toggle = () => ($("#newcred", m).style.display = sc.value === "__new" || !S.creds.length ? "flex" : "none");
+  sc.onchange = toggle;
+  if (!S.creds.length) sc.value = "__new";
+  toggle();
+  const msg = (t, ok) => ($("#smsg", m).innerHTML = `<div class="msg ${ok ? "okm" : "err"}">${esc(t)}</div>`);
+  const collect = async () => {
+    let cid = sc.value;
+    if (cid === "__new") {
+      const c = await call("SaveCredential", { name: $("#cu", m).value.trim(), username: $("#cu", m).value.trim(), password: $("#cp", m).value });
+      S.creds = await call("Credentials");
+      sc.innerHTML = credOptions(c.id);
+      sc.value = c.id;
+      toggle();
+      cid = c.id;
+    }
+    return { ...(sw || {}), host: $("#sh", m).value.trim(), port: +$("#sp", m).value || 22, name: $("#sn", m).value.trim(), credentialId: cid, family: $("#sf", m).value, site: $("#ss", m).value.trim(), notes: $("#so", m).value.trim() };
+  };
+  $("#stest", m).onclick = async () => {
+    const b = $("#stest", m);
+    b.disabled = true;
+    b.textContent = "Connecting…";
+    try { msg(await call("TestSwitch", await collect()), true); } catch (err) { msg(err.message); }
+    b.disabled = false;
+    b.textContent = "Test connection";
+  };
+  $("#ssave", m).onclick = async () => {
+    try {
+      const saved = await call("SaveSwitch", await collect());
+      closeModal();
+      toast(sw ? "Saved" : "Added " + saved.host + ". Collecting now.");
+      if (!sw) location.hash = "#/switch/" + saved.id;
+      else loadDetail(saved.id);
+    } catch (err) { msg(err.message); }
+  };
+  if (sw) $("#sdel", m).onclick = async () => {
+    if (!confirm(`Remove ${sw.name || sw.host} and its saved configs from SwitchDesk? The switch itself isn't changed.`)) return;
+    await call("DeleteSwitch", sw.id);
+    closeModal();
+    location.hash = "#/switches";
+  };
+}
+
+async function openBulkModal() {
+  S.creds = await call("Credentials");
+  const m = modal(`<h2>Add many switches</h2><div class="body">
+    <label class="f"><span>One switch per line: an address, "name, address", or a range like 10.0.0.10-10.0.0.40</span>
+    <textarea id="bt" rows="9" placeholder="10.0.0.11\ncore-cx, 10.0.0.1\n10.0.1.20-10.0.1.29"></textarea></label>
+    <div class="row"><label class="f"><span>Credentials</span><select id="bc">${credOptions(S.creds[0]?.id)}</select></label>
+      <label class="f"><span>Switch type</span><select id="bf">${FAMILIES.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label></div>
+    <div id="bnew" class="row" style="display:none"><label class="f"><span>Username</span><input type="text" id="bu" value="admin"></label><label class="f"><span>Password</span><input type="password" id="bp"></label></div>
+    <label class="f"><span>Site</span><input type="text" id="bs"></label><div id="bmsg"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="bgo">Add switches</button></div>`);
+  const bc = $("#bc", m);
+  const toggle = () => ($("#bnew", m).style.display = bc.value === "__new" || !S.creds.length ? "flex" : "none");
+  if (!S.creds.length) bc.value = "__new";
+  bc.onchange = toggle;
+  toggle();
+  $("#bgo", m).onclick = async () => {
+    try {
+      let cid = bc.value;
+      if (cid === "__new") cid = (await call("SaveCredential", { name: $("#bu", m).value.trim(), username: $("#bu", m).value.trim(), password: $("#bp", m).value })).id;
+      const r = await call("BulkAdd", $("#bt", m).value, cid, $("#bs", m).value.trim(), $("#bf", m).value);
+      if (r.errors?.length) {
+        $("#bmsg", m).innerHTML = `<div class="msg err">Added ${r.added}. Skipped:<br>${r.errors.map(esc).join("<br>")}</div>`;
+      } else {
+        closeModal();
+        toast(`Added ${plural(r.added, "switch").replace("switchs", "switches")}. Collecting now.`);
+        location.hash = "#/dashboard";
+      }
+    } catch (err) { $("#bmsg", m).innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+  };
+}
+
+// ---------- network map ----------
+function renderMap() {
+  $("#main").innerHTML = `<div class="page full"><div class="mapwrap">
+    <canvas id="map"></canvas>
+    <div class="maptools"><h1>Network map</h1>
+      <button class="btn small" onclick="SDMap.fit()">Fit to window</button>
+      <button class="btn small" onclick="SDMap.relayout()">Arrange again</button>
+      <label class="check btn small"><input type="checkbox" ${S.showEndpoints ? "checked" : ""} onchange="S.showEndpoints=this.checked;SDMap.reload()"> Phones and hosts</label>
+      <span style="flex:1"></span><span class="faint" id="mapstat" style="font-size:13px"></span></div>
+    <div class="maplegend"><span><i style="border-color:#5d7088"></i>Link</span><span><i style="border-color:var(--warn);border-top-style:dashed"></i>STP blocking</span><span><i style="border-color:var(--crit)"></i>Port down</span><span>Hover or select a switch to see port numbers</span></div>
+    <div class="panel mapcard" id="mapcard" style="display:none"></div></div></div>`;
+  SDMap.start($("#map"), {
+    load: () => call("GetTopology", S.showEndpoints),
+    saveLayout: (l) => call("SaveLayout", l),
+    select: showMapCard,
+    status: (t) => { const el = $("#mapstat"); if (el) el.textContent = t; },
+  });
+}
+
+function showMapCard(n, topo) {
+  const c = $("#mapcard");
+  if (!c) return;
+  if (!n) { c.style.display = "none"; return; }
+  const links = topo.edges.filter((e) => e.from === n.id || e.to === n.id).map((e) => {
+    const mine = e.from === n.id ? e.fromPort : e.toPort, other = e.from === n.id ? e.to : e.from, theirs = e.from === n.id ? e.toPort : e.fromPort;
+    const on = topo.nodes.find((x) => x.id === other);
+    return `<tr><td class="mono">${esc(mine)}</td><td>${esc(on?.label || other)}</td><td class="mono">${esc(theirs)}</td></tr>`;
+  });
+  c.style.display = "block";
+  c.innerHTML = `<h3>${esc(n.label)}</h3><div class="muted" style="font-size:13px;margin-bottom:10px">${n.managed ? (n.online ? `<span class="ok">Online</span>` : `<span class="bad">Offline</span>`) + " " : ""}<span class="mono">${esc(n.host)}</span>${n.model ? "<br>" + esc(n.model) : ""}${n.stpRoot ? "<br>Spanning-tree root" : ""}</div>
+    ${links.length ? `<table style="font-size:13px"><thead><tr><th style="padding:4px 6px">Port</th><th style="padding:4px 6px">To</th><th style="padding:4px 6px">Port</th></tr></thead><tbody>${links.join("").replaceAll("<td", '<td style="padding:4px 6px"')}</tbody></table>` : ""}
+    ${n.managed ? `<div style="margin-top:12px"><button class="btn small primary" data-go="#/switch/${n.id}">Open switch</button></div>` : `<div class="faint" style="font-size:12.5px;margin-top:10px">Seen by LLDP/CDP, not in your inventory.</div>`}`;
+}
+
+// ---------- VLAN matrix ----------
+async function renderVLANs() {
+  const data = await call("VLANOverview");
+  if (!data.length) {
+    $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1></div><div class="panel"><div class="empty"><h3>No VLAN data yet</h3><p>VLANs appear here once switches have been collected.</p></div></div></div>`;
+    return;
+  }
+  const ids = [...new Set(data.flatMap((s) => s.vlans.map((v) => v.id)))].sort((a, b) => a - b);
+  const rows = ids.map((id) => {
+    const names = {};
+    data.forEach((s) => { const v = s.vlans.find((x) => x.id === id); if (v?.name) names[v.name] = (names[v.name] || 0) + 1; });
+    const common = Object.entries(names).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    const cells = data.map((s) => {
+      const v = s.vlans.find((x) => x.id === id);
+      if (!v) return `<td class="faint">·</td>`;
+      const n = (v.untagged?.length || 0) + (v.tagged?.length || 0);
+      const diff = v.name && common && v.name !== common;
+      return `<td><a class="cellv ${diff ? "diff" : "has"}" data-go="#/switch/${s.id}/vlans" title="${esc(v.name)}: ${v.untagged?.length || 0} untagged, ${v.tagged?.length || 0} tagged${diff ? " (name differs)" : ""}">${n || "–"}</a></td>`;
+    }).join("");
+    const mism = Object.keys(names).length > 1;
+    return `<tr><td><span class="mono">${id}</span> ${esc(common)}${mism ? ` <span class="sev warning" title="${esc(Object.keys(names).join(", "))}">names differ</span>` : ""}</td>${cells}</tr>`;
+  });
+  $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1><span class="sub">${ids.length} across ${plural(data.length, "switch").replace("switchs", "switches")}</span></div>
+    <p class="muted" style="margin-top:-6px">Each cell shows how many ports carry the VLAN on that switch. Click one to edit it there.</p>
+    <div class="panel" style="overflow:auto"><table class="matrix"><thead><tr><th>VLAN</th>${data.map((s) => `<th><a data-go="#/switch/${s.id}/vlans" style="color:inherit">${esc(s.name)}</a></th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
+}
+
+// ---------- settings ----------
+async function renderSettings() {
+  S.creds = await call("Credentials");
+  S.settings = await call("GetSettings");
+  const set = S.settings;
+  const ver = await call("Version");
+  $("#main").innerHTML = `<div class="page" style="max-width:900px"><div class="head"><h1>Settings</h1></div>
+    <section class="panel" style="margin-bottom:18px"><h2>Credentials<span class="grow"></span><button class="btn small" onclick="editCred()">${ICON.plus}Add</button></h2>
+      ${S.creds.length ? `<table><tbody>${S.creds.map((c) => `<tr><td>${esc(c.name)}</td><td class="mono">${esc(c.username)}</td><td style="text-align:right"><button class="btn small" onclick="editCred('${c.id}')">Edit</button> <button class="btn small danger" onclick="delCred('${c.id}')">Remove</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No credentials yet. They're added when you add your first switch.</div>`}
+      <div class="faint" style="padding:10px 16px;font-size:12.5px">Passwords are encrypted on this computer and never shown again.</div></section>
+    <section class="panel"><h2>Monitoring</h2><div class="body">
+      <div class="row"><label class="f"><span>Reachability check every (seconds)</span><input type="number" id="pi" min="5" value="${set.pingInterval}"></label>
+        <label class="f"><span>Read switches over SSH every (minutes, 0 = only on demand)</span><input type="number" id="ci" min="0" value="${set.collectInterval}"></label></div>
+      <div class="row"><label class="f"><span>Switches read at the same time</span><input type="number" id="pa" min="1" max="16" value="${set.parallel}"></label>
+        <label class="f"><span>Config copies kept per switch</span><input type="number" id="kb" min="1" value="${set.keepBackups}"></label></div>
+      <div class="row"><label class="f"><span>Warn above CPU %</span><input type="number" id="cw" value="${set.cpuWarn}"></label>
+        <label class="f"><span>Warn above memory %</span><input type="number" id="mw" value="${set.memWarn}"></label></div>
+      <label class="check" style="margin-bottom:14px"><input type="checkbox" id="is" ${set.ignoreSnmp ? "checked" : ""}> Don't flag default SNMP communities</label>
+      <button class="btn primary" onclick="saveSettings()">Save settings</button></div></section>
+    <p class="faint" style="font-size:12.5px;margin-top:18px">SwitchDesk ${esc(ver)}. Data folder: <span class="mono">${esc(S.dash?.dataDir || "")}</span></p></div>`;
+}
+
+async function saveSettings() {
+  try {
+    await call("SaveSettings", { pingInterval: +$("#pi").value, collectInterval: +$("#ci").value, parallel: +$("#pa").value, keepBackups: +$("#kb").value, cpuWarn: +$("#cw").value, memWarn: +$("#mw").value, ignoreSnmp: $("#is").checked });
+    S.settings = await call("GetSettings");
+    toast("Settings saved");
+  } catch (e) { toast(e.message, true); }
+}
+
+function editCred(id) {
+  const c = S.creds.find((x) => x.id === id) || {};
+  const m = modal(`<h2>${id ? "Edit credentials" : "Add credentials"}</h2><div class="body">
+    <label class="f"><span>Name</span><input type="text" id="cn" value="${esc(c.name || "")}" placeholder="Core switches"></label>
+    <div class="row"><label class="f"><span>Username</span><input type="text" id="cu2" value="${esc(c.username || "")}"></label>
+    <label class="f"><span>Password${id ? ' <span class="faint">(leave empty to keep)</span>' : ""}</span><input type="password" id="cp2"></label></div><div id="cmsg"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="csave">Save</button></div>`);
+  $("#csave", m).onclick = async () => {
+    try {
+      await call("SaveCredential", { id: id || "", name: $("#cn", m).value.trim(), username: $("#cu2", m).value.trim(), password: $("#cp2", m).value });
+      closeModal();
+      renderSettings();
+    } catch (e) { $("#cmsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  };
+}
+
+async function delCred(id) {
+  try { await call("DeleteCredential", id); renderSettings(); } catch (e) { toast(e.message, true); }
+}
+
+// ---------- boot ----------
+async function boot() {
+  for (let i = 0; i < 100 && !window.go?.main?.App; i++) await new Promise((r) => setTimeout(r, 30));
+  api = window.go?.main?.App;
+  if (!api) {
+    $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Can't reach the SwitchDesk backend</h3><p>Open this page through the SwitchDesk app.</p></div></div>`;
+    return;
+  }
+  const plat = await call("Platform");
+  if (plat === "darwin") document.documentElement.style.setProperty("--top", "22px");
+  S.settings = await call("GetSettings");
+  S.dash = await call("GetDashboard");
+  window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
+  // keep relative times fresh even when nothing changes
+  setInterval(() => { if (!S.modalOpen && (S.route[0] || "dashboard") === "dashboard") renderDashboard(); }, 30000);
+  route();
+}
+boot();
