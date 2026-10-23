@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.5.0-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -71,7 +71,9 @@ Search by name, address, site, model or software, or by state: `offline`, `disab
 ### Firmware updates
 Each switch shows the version it runs, what's in its primary and secondary bank, and whether your firmware library has something newer for its platform. **Update** copies the image into the spare bank (the running version stays in the other one as a fallback), sets it as the boot default, saves the config and reboots, then checks that the switch came back on the new version. Pick several switches and they're updated one at a time. Or choose **copy only** and reboot whenever suits you.
 
-Switches pull the image straight from SwitchDesk over TFTP (UDP 69), so nothing else needs to be set up. Your firewall may ask to allow it the first time.
+On AOS-S, SwitchDesk uploads the image to the switch over SSH (SFTP, or SCP on older firmware). The switch never has to connect back to your computer, so this works over a VPN or zero trust access. For the upload it turns on `ip ssh filetransfer`, which also switches off the switch's TFTP client and server, and afterwards it puts those settings back the way they were.
+
+AOS-CX switches, and AOS-S switches that refuse the upload, pull the image from SwitchDesk over TFTP (UDP 69) instead. For that the switch has to be able to reach your computer, and your firewall may ask to allow it the first time.
 
 HPE doesn't offer firmware downloads without signing in, so the library is filled by you: add `.swi` files you downloaded, or paste a download link from the HPE Networking Support Portal and SwitchDesk fetches it. Images are matched to switches by platform code (WC, YA, KB, FL, PL…), read from the file name or the image itself.
 
@@ -161,7 +163,7 @@ wails dev
 The UI is plain HTML, CSS and JavaScript in `frontend/dist` with no build step. To work on it in a normal browser with sample data, open `frontend/dev/preview.html`.
 
 ```
-internal/sshx    SSH shell sessions: prompts, paging, escape codes, legacy ciphers
+internal/sshx    SSH shell sessions (prompts, paging, escape codes, legacy ciphers) and SFTP/SCP uploads
 internal/aruba   command sets per family, output parsers, VLAN change builder
 internal/core    polling, problem rules, network map
 internal/store     inventory, encrypted credentials, snapshots, config copies

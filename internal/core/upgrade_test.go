@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/jaba0x/switchdesk/internal/store"
@@ -34,6 +35,10 @@ type fakeAOSS struct {
 	addr               string
 	cfg                *ssh.ServerConfig
 	down               bool
+
+	// SSH file transfer (ip ssh filetransfer + SFTP into /os/<bank>)
+	push                         bool // the switch supports it
+	ftOn, tftpCliOff, tftpSrvOff bool
 }
 
 func newFakeAOSS(t *testing.T) *fakeAOSS {
@@ -93,6 +98,16 @@ func (f *fakeAOSS) serve(nc net.Conn) {
 		ch, creqs, _ := nch.Accept()
 		go func() {
 			for r := range creqs {
+				if r.Type == "subsystem" && len(r.Payload) > 4 && string(r.Payload[4:]) == "sftp" {
+					f.mu.Lock()
+					on := f.ftOn
+					f.mu.Unlock()
+					r.Reply(on, nil)
+					if on {
+						go f.sftp(ch)
+					}
+					continue
+				}
 				r.Reply(r.Type == "pty-req" || r.Type == "shell", nil)
 				if r.Type == "shell" {
 					go f.shell(ch, nc)
@@ -133,11 +148,21 @@ func (f *fakeAOSS) shell(ch ssh.Channel, nc net.Conn) {
 			fmt.Fprintf(ch, "Primary Image   :     33204214 10/18/23 %s\r\nSecondary Image :     32952136 03/10/22 %s\r\n\r\nDefault Boot Image   : %s\r\n", f.primary, f.secondary, strings.Title(f.def))
 		case copyRe.MatchString(cmd):
 			m := copyRe.FindStringSubmatch(cmd)
-			port := f.tftpPort
 			f.mu.Unlock()
 			io.WriteString(ch, "The Secondary OS Image will be deleted, continue [y/n]? ")
 			ch.Read(b) // the 'y'
 			io.WriteString(ch, "\r\n")
+			// the test learns the TFTP port once the server is up, which is
+			// just before this command arrives
+			port := 0
+			for i := 0; i < 200 && port == 0; i++ {
+				f.mu.Lock()
+				port = f.tftpPort
+				f.mu.Unlock()
+				if port == 0 {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
 			data, err := tftpGet(m[1], port, m[2])
 			f.mu.Lock()
 			if err != nil {
@@ -163,6 +188,27 @@ func (f *fakeAOSS) shell(ch ssh.Channel, nc net.Conn) {
 			nc.Close()
 			f.reboot()
 			return
+		case cmd == "show running-config":
+			io.WriteString(ch, "hostname \"SW-FAKE\"\r\n")
+			if f.ftOn {
+				io.WriteString(ch, "ip ssh filetransfer\r\n")
+			}
+			if f.tftpCliOff {
+				io.WriteString(ch, "no tftp client\r\n")
+			}
+			if f.tftpSrvOff {
+				io.WriteString(ch, "no tftp server\r\n")
+			}
+		case f.push && cmd == "ip ssh filetransfer":
+			f.ftOn, f.tftpCliOff, f.tftpSrvOff = true, true, true
+			io.WriteString(ch, "Tftp and auto-tftp have been disabled.\r\n")
+		case f.push && cmd == "no ip ssh filetransfer":
+			f.ftOn = false
+		case f.push && cmd == "tftp client":
+			f.tftpCliOff = false
+		case f.push && cmd == "tftp server":
+			f.tftpSrvOff = false
+		case f.push && (cmd == "configure terminal" || cmd == "end"):
 		case cmd == "no page", cmd == "write memory", cmd == "terminal width 200", cmd == "":
 		default:
 			fmt.Fprintf(ch, "Invalid input: %s\r\n", cmd)
@@ -170,6 +216,56 @@ func (f *fakeAOSS) shell(ch ssh.Channel, nc net.Conn) {
 		f.mu.Unlock()
 		io.WriteString(ch, prompt)
 	}
+}
+
+// sftp accepts uploads to /os/primary and /os/secondary and reads the
+// version out of the image, like the real switch does.
+func (f *fakeAOSS) sftp(ch ssh.Channel) {
+	h := sftp.InMemHandler()
+	h.FilePut = fakeWriter{f}
+	srv := sftp.NewRequestServer(ch, h)
+	srv.Serve()
+	srv.Close()
+}
+
+type fakeWriter struct{ f *fakeAOSS }
+
+func (w fakeWriter) Filewrite(r *sftp.Request) (io.WriterAt, error) {
+	bank := strings.TrimPrefix(r.Filepath, "/os/")
+	if bank != "primary" && bank != "secondary" {
+		return nil, os.ErrPermission
+	}
+	return &fakeImage{f: w.f, bank: bank}, nil
+}
+
+type fakeImage struct {
+	f    *fakeAOSS
+	bank string
+	buf  []byte
+}
+
+func (i *fakeImage) WriteAt(p []byte, off int64) (int, error) {
+	if end := int(off) + len(p); end > len(i.buf) {
+		i.buf = append(i.buf, make([]byte, end-len(i.buf))...)
+	}
+	copy(i.buf[off:], p)
+	return len(p), nil
+}
+
+func (i *fakeImage) Close() error {
+	ver := regexp.MustCompile(`[A-Z]{2}\.\d+\.\d+\.\d+`).Find(i.buf)
+	i.f.mu.Lock()
+	defer i.f.mu.Unlock()
+	i.f.gotBytes = len(i.buf)
+	if ver == nil {
+		return nil
+	}
+	if i.bank == "secondary" {
+		i.f.secondary = string(ver)
+	} else {
+		i.f.primary = string(ver)
+	}
+	return nil
 }
 
 func tftpGet(host string, port int, name string) ([]byte, error) {
@@ -240,7 +336,7 @@ func TestUpgradeEndToEnd(t *testing.T) {
 
 	// grab the TFTP port once the job starts its server
 	go func() {
-		for i := 0; i < 400; i++ {
+		for i := 0; i < 6000; i++ { // TFTP only starts after the SSH upload is turned down
 			m.up.mu.Lock()
 			if m.up.tftp != nil {
 				fake.mu.Lock()
@@ -290,5 +386,60 @@ func TestMaintenanceWindow(t *testing.T) {
 	}
 	if !inWindow(at(23, 30), "23:00", "01:00") || !inWindow(at(0, 30), "23:00", "01:00") || inWindow(at(12, 0), "23:00", "01:00") {
 		t.Fatal("window over midnight")
+	}
+}
+
+// Over VPN or zero trust access the switch can't reach us, so TFTP never
+// works. The job has to upload over SSH and put the switch's settings back.
+func TestUpgradeOverSSHWithoutTFTP(t *testing.T) {
+	tftpAddr, pollDown, pollUp, settleAfter = "127.0.0.1:0", 50*time.Millisecond, 100*time.Millisecond, 200*time.Millisecond
+
+	dir := t.TempDir()
+	st, _ := store.Open(dir)
+	cred, _ := st.SaveCredential(store.Credential{Username: "manager", Password: "x"})
+	fake := newFakeAOSS(t)
+	fake.push = true
+	fake.tftpPort = 1 // nothing listens there: a TFTP attempt would fail
+	host, portS, _ := net.SplitHostPort(fake.addr)
+	port, _ := strconv.Atoi(portS)
+	sw, _ := st.SaveSwitch(store.Switch{Host: host, Port: port, CredentialID: cred.ID})
+
+	m := New(st, nil)
+	m.Start()
+	defer m.Stop()
+
+	img := filepath.Join(t.TempDir(), "WC_16_11_0021.swi")
+	payload := append([]byte("HPE image WC.16.11.0021 "), bytes.Repeat([]byte("firmware!"), 200000)...)
+	os.WriteFile(img, payload, 0o600)
+	if _, err := m.Library().AddFile(img); err != nil {
+		t.Fatal(err)
+	}
+	m.collect(sw.ID)
+	if _, err := m.StartUpgrade([]string{sw.ID}, "", true, false); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	var j Job
+	for time.Now().Before(deadline) {
+		j = m.Jobs()[0]
+		if !j.active() {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	log := strings.Join(j.Log, "\n")
+	if j.State != "done" {
+		t.Fatalf("job ended %s: %s\n%s", j.State, j.Error, log)
+	}
+	if !strings.Contains(log, "Uploaded with SFTP") || strings.Contains(log, "TFTP") {
+		t.Fatalf("expected an SFTP upload and no TFTP:\n%s", log)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.gotBytes != len(payload) || fake.secondary != "WC.16.11.0021" || fake.running != "secondary" {
+		t.Fatalf("fake switch: got %d bytes, secondary %s, running %s", fake.gotBytes, fake.secondary, fake.running)
+	}
+	if fake.ftOn || fake.tftpCliOff || fake.tftpSrvOff {
+		t.Fatalf("settings not restored: filetransfer %v, tftp client off %v, tftp server off %v", fake.ftOn, fake.tftpCliOff, fake.tftpSrvOff)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -279,6 +280,7 @@ var (
 	pollDown    = 5 * time.Second
 	pollUp      = 10 * time.Second
 	settleAfter = 45 * time.Second
+	bankSettle  = 3 * time.Minute // how long a switch may take to show an uploaded image in its bank
 )
 
 // tftpAcquire starts the shared TFTP server if needed.
@@ -365,21 +367,9 @@ func (m *Manager) runJob(j *Job) {
 		m.fail(j, errors.New("switch was removed"))
 		return
 	}
-	if err := m.tftpAcquire(); err != nil {
-		m.fail(j, err)
-		return
-	}
-	defer m.tftpRelease()
-
-	local, err := firmware.LocalIPFor(sw.Host)
-	if err != nil {
-		m.fail(j, fmt.Errorf("no route to %s: %v", sw.Host, err))
-		return
-	}
-
 	var spare string
 	var fam aruba.Family
-	err = m.withSession(j.SwitchID, 50*time.Minute, func(ctx context.Context, s *sshx.Session, f aruba.Family) error {
+	err := m.withSession(j.SwitchID, 50*time.Minute, func(ctx context.Context, s *sshx.Session, f aruba.Family) error {
 		fam = f
 		m.step(j, "Reading firmware banks")
 		banks, err := readBanks(ctx, s, f)
@@ -391,17 +381,11 @@ func (m *Manager) runJob(j *Job) {
 		if banks.Version(spare) == j.To {
 			m.step(j, fmt.Sprintf("%s is already in the %s bank, skipping the copy", j.To, spare))
 		} else {
-			vrf := m.vrfFor(sw, f)
-			m.step(j, fmt.Sprintf("Copying %s to the %s bank from %s", j.Image, spare, local))
-			out, err := aruba.CopyImage(ctx, s, f, local, j.Image, spare, vrf)
-			if out != "" {
-				m.logf(j, "%s", lastLines(out, 4))
-			}
-			if err != nil {
+			if err := m.copyImage(ctx, j, sw, s, f, spare); err != nil {
 				return err
 			}
 			m.update(j, func(j *Job) { j.Progress = 1 })
-			banks, err = readBanks(ctx, s, f)
+			banks, err = waitBank(ctx, s, f, spare, j.To, bankSettle)
 			if err != nil {
 				return err
 			}
@@ -622,3 +606,132 @@ func (m *Manager) autoTick(now time.Time) {
 
 // Library gives the app access to the firmware library (nil if it couldn't be opened).
 func (m *Manager) Library() *firmware.Library { return m.lib }
+
+// copyImage gets the image into the spare bank. On AOS-S it is uploaded over
+// SSH (SFTP or SCP), which only needs the connection we already make to the
+// switch. That works over VPNs and zero trust access where the switch can't
+// reach this computer. TFTP, where the switch pulls the file from us, is the
+// fallback and the only method on AOS-CX.
+func (m *Manager) copyImage(ctx context.Context, j *Job, sw store.Switch, s *sshx.Session, f aruba.Family, spare string) error {
+	var pushErr error
+	if target, ok := aruba.PushTarget(f, spare); ok {
+		pushErr = m.pushImage(ctx, j, sw, s, target, spare)
+		if pushErr == nil {
+			return nil
+		}
+		m.logf(j, "Upload over SSH failed: %v", pushErr)
+		m.logf(j, "Trying TFTP instead, where the switch downloads the image from this computer")
+	}
+	err := m.tftpCopy(ctx, j, sw, s, f, spare)
+	if err != nil && pushErr != nil {
+		return fmt.Errorf("upload over SSH failed (%v), and TFTP failed too (%v)", pushErr, err)
+	}
+	return err
+}
+
+func (m *Manager) pushImage(ctx context.Context, j *Job, sw store.Switch, s *sshx.Session, target, spare string) error {
+	p, err := m.lib.Path(j.Image)
+	if err != nil {
+		return err
+	}
+	file, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	cred, err := m.st.Credential(sw.CredentialID)
+	if err != nil {
+		return err
+	}
+
+	m.step(j, "Turning on file transfer over SSH (ip ssh filetransfer)")
+	st, err := aruba.EnableFileTransfer(ctx, s)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cmds := aruba.RestoreCommands(st); len(cmds) > 0 {
+			// the session may be near its deadline after a slow upload
+			rctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := aruba.RestoreFileTransfer(rctx, s, st); err != nil {
+				m.logf(j, "Couldn't restore the file transfer settings: %v. Run these on the switch: %s", err, strings.Join(cmds, "; "))
+			} else {
+				m.logf(j, "Restored the previous settings: %s", strings.Join(cmds, "; "))
+			}
+		}
+	}()
+
+	m.step(j, fmt.Sprintf("Uploading %s (%s) to the %s bank over SSH", j.Image, humanBytes(info.Size()), spare))
+	o := sshx.Options{Host: sw.Host, Port: sw.Port, Username: cred.Username, Password: cred.Password, KnownKey: sw.HostKey, Timeout: 15 * time.Second}
+	start := time.Now()
+	method, err := upload(ctx, o, target, file, info.Size(), func(sent, total int64) {
+		if total > 0 {
+			m.update(j, func(j *Job) { j.Progress = float64(sent) / float64(total) })
+		}
+	})
+	if err != nil {
+		return err
+	}
+	m.logf(j, "Uploaded with %s in %s", strings.ToUpper(method), time.Since(start).Round(time.Second))
+	return nil
+}
+
+// upload is swapped out in tests.
+var upload = sshx.Upload
+
+func (m *Manager) tftpCopy(ctx context.Context, j *Job, sw store.Switch, s *sshx.Session, f aruba.Family, spare string) error {
+	if err := m.tftpAcquire(); err != nil {
+		return err
+	}
+	defer m.tftpRelease()
+	local, err := firmware.LocalIPFor(sw.Host)
+	if err != nil {
+		return fmt.Errorf("no route to %s: %v", sw.Host, err)
+	}
+	vrf := m.vrfFor(sw, f)
+	m.step(j, fmt.Sprintf("Copying %s to the %s bank from %s over TFTP", j.Image, spare, local))
+	out, err := aruba.CopyImage(ctx, s, f, local, j.Image, spare, vrf)
+	if out != "" {
+		m.logf(j, "%s", lastLines(out, 4))
+	}
+	if err != nil && strings.Contains(strings.ToLower(out), "peer unreachable") {
+		err = fmt.Errorf("%w. The switch couldn't reach %s on UDP 69; this happens over VPN or zero trust access", err, local)
+	}
+	return err
+}
+
+// waitBank re-reads the banks until want shows up in bank or wait runs out.
+// AOS-S keeps writing an uploaded image to flash for a little while after the
+// transfer ends.
+func waitBank(ctx context.Context, s *sshx.Session, f aruba.Family, bank, want string, wait time.Duration) (aruba.Banks, error) {
+	deadline := time.Now().Add(wait)
+	for {
+		b, err := readBanks(ctx, s, f)
+		if err == nil && b.Version(bank) == want {
+			return b, nil
+		}
+		if time.Now().After(deadline) {
+			return b, err
+		}
+		select {
+		case <-ctx.Done():
+			return b, ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}
