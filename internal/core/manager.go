@@ -134,6 +134,9 @@ func (m *Manager) pingAll() {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 32)
 	for _, sw := range sws {
+		if sw.Disabled {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(sw store.Switch) {
@@ -211,7 +214,7 @@ func (m *Manager) scheduleLoop() {
 			for _, sw := range m.st.Switches() {
 				st := m.stat(sw.ID)
 				m.mu.Lock()
-				ready := st.Online && !st.Collecting && time.Since(st.LastCollect) > due && !st.HostKeyChanged && !st.AuthFailed
+				ready := !sw.Disabled && st.Online && !st.Collecting && time.Since(st.LastCollect) > due && !st.HostKeyChanged && !st.AuthFailed
 				m.mu.Unlock()
 				if ready {
 					m.Enqueue(sw.ID)
@@ -227,6 +230,9 @@ func (m *Manager) scheduleLoop() {
 }
 
 func (m *Manager) Enqueue(id string) {
+	if sw, ok := m.st.Switch(id); !ok || sw.Disabled {
+		return
+	}
 	st := m.stat(id)
 	m.mu.Lock()
 	if st.Collecting {
@@ -344,6 +350,19 @@ func (m *Manager) collect(id string) {
 	m.st.SaveBackup(id, snap.RunningConfig, m.st.Settings().KeepBackups)
 }
 
+// Resume checks a re-enabled switch right away and reads it if it answers.
+func (m *Manager) Resume(id string) {
+	sw, ok := m.st.Switch(id)
+	if !ok || sw.Disabled {
+		return
+	}
+	m.ping(sw)
+	m.changed()
+	if m.stat(id).Online {
+		m.Enqueue(id)
+	}
+}
+
 // RefreshAll queues every online switch.
 func (m *Manager) RefreshAll() {
 	for _, sw := range m.st.Switches() {
@@ -419,6 +438,7 @@ type Dashboard struct {
 	Online     int            `json:"online"`
 	Offline    int            `json:"offline"`
 	Unknown    int            `json:"unknown"`
+	Disabled   int            `json:"disabled"`
 	Critical   int            `json:"critical"`
 	Warning    int            `json:"warning"`
 	InfoCount  int            `json:"info"`
@@ -478,7 +498,13 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 			m.status[sw.ID] = st
 		}
 		snap := m.snaps[sw.ID]
-		issues := evaluate(sw, st, snap, set)
+		var issues []Issue
+		if sw.Disabled {
+			// a paused switch keeps its last data but raises nothing
+			*st = Status{LastCollect: st.LastCollect}
+		} else {
+			issues = evaluate(sw, st, snap, set)
+		}
 		sortIssues(issues)
 		v := SwitchView{Switch: sw, Status: *st, Summary: summarize(snap), Issues: issues}
 		if len(issues) > 0 {
@@ -488,6 +514,9 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 		infos = append(infos, switchInfo{sw: sw, snap: snap, online: st.Online, issues: issues})
 		snaps[sw.ID] = snap
 		names[sw.ID] = displayName(sw, snap)
+		if sw.Disabled {
+			delete(snaps, sw.ID) // keep paused switches out of network-wide checks
+		}
 	}
 	return out, infos, snaps, names
 }
@@ -498,6 +527,8 @@ func (m *Manager) Dashboard() Dashboard {
 	for _, v := range vs {
 		d.Total++
 		switch {
+		case v.Disabled:
+			d.Disabled++
 		case !v.Status.Checked:
 			d.Unknown++
 		case v.Status.Online:

@@ -16,6 +16,7 @@ type Node struct {
 	Host     string   `json:"host"`
 	Model    string   `json:"model"`
 	Online   bool     `json:"online"`
+	Disabled bool     `json:"disabled"`
 	Severity Severity `json:"severity"`
 	Issues   int      `json:"issues"`
 	StpRoot  bool     `json:"stpRoot"`
@@ -50,7 +51,7 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 	idx := map[string]string{} // match key -> node id
 	nodes := map[string]*Node{}
 	for _, in := range infos {
-		n := &Node{ID: in.sw.ID, Label: displayName(in.sw, in.snap), Kind: "switch", Managed: true, Host: in.sw.Host, Online: in.online}
+		n := &Node{ID: in.sw.ID, Label: displayName(in.sw, in.snap), Kind: "switch", Managed: true, Host: in.sw.Host, Online: in.online, Disabled: in.sw.Disabled}
 		idx["ip:"+in.sw.Host] = in.sw.ID
 		if in.snap != nil {
 			n.Model = in.snap.Facts.Model

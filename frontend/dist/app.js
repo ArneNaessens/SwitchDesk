@@ -28,6 +28,10 @@ const ICON = {
   refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
 };
 
 function toast(text, err) {
@@ -88,6 +92,7 @@ function renderSide() {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.closest(".nogo")) return; // checkboxes and row buttons don't open the switch
   const go = e.target.closest("[data-go]");
   if (go) { e.preventDefault(); location.hash = go.dataset.go; }
 });
@@ -141,7 +146,9 @@ function renderDashboard() {
   const issues = d.issues.filter((i) => S.filter === "all" ? i.severity !== "info" : i.severity === S.filter);
   const chip = (k, label, n) => `<button class="chip${S.filter === k ? " on" : ""}" onclick="S.filter='${k}';renderDashboard()">${label}${n !== undefined ? ` ${n}` : ""}</button>`;
   const bySev = { critical: 0, warning: 1, info: 2, "": 3 };
-  const plates = [...d.switches].sort((a, b) => (a.status.online === b.status.online ? 0 : a.status.online ? 1 : -1) || bySev[a.worst || ""] - bySev[b.worst || ""]);
+  // offline first, then by worst problem; disabled switches go last
+  const rank = (v) => (v.disabled ? 2 : v.status.checked && !v.status.online ? 0 : 1);
+  const plates = [...d.switches].sort((a, b) => rank(a) - rank(b) || bySev[a.worst || ""] - bySev[b.worst || ""]);
   main.innerHTML = `<div class="page">
     <div class="head"><h1>Dashboard</h1><span class="grow"></span>
       <button class="btn" onclick="refreshAll(this)">${ICON.refresh}Collect now</button></div>
@@ -150,6 +157,7 @@ function renderDashboard() {
         <span class="stat" data-go="#/switches"><span class="big">${d.online}</span><span class="lbl">online</span></span>
         <span class="stat" data-go="#/switches"><span class="big ${d.offline ? "bad" : ""}">${d.offline}</span><span class="lbl">offline</span></span>
         ${d.unknown ? `<span><span class="big faint">${d.unknown}</span><span class="lbl">not checked yet</span></span>` : ""}
+        ${d.disabled ? `<span class="stat" data-go="#/switches"><span class="big faint">${d.disabled}</span><span class="lbl">disabled</span></span>` : ""}
         <span><span class="big ${d.critical ? "bad" : ""}">${d.critical}</span><span class="lbl">critical</span></span>
         <span><span class="big ${d.warning ? "warnc" : ""}">${d.warning}</span><span class="lbl">warnings</span></span>
       </div>
@@ -181,10 +189,10 @@ function statusDot(v) {
 function plate(v) {
   const s = v.summary;
   const name = v.name || s?.hostname || v.host;
-  const meta = !v.status.online && v.status.checked ? `<span class="bad">offline ${ago(v.status.since)}</span>` :
+  const meta = v.disabled ? `<span class="faint">disabled</span>` : !v.status.online && v.status.checked ? `<span class="bad">offline ${ago(v.status.since)}</span>` :
     `${esc(v.host)}${v.status.latencyMs ? ` <span class="faint">${v.status.latencyMs} ms</span>` : ""}`;
-  return `<div class="plate" data-go="#/switch/${v.id}">
-    <div class="nm">${statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
+  return `<div class="plate${v.disabled ? " off" : ""}" data-go="#/switch/${v.id}">
+    <div class="nm">${v.disabled ? `<span class="dot"></span>` : statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
     <div class="meta">${meta}</div>
     <div class="leds-wrap" style="grid-column:1/-1">${s?.ports?.length ? leds(s.ports, { ports: s.ports.filter((p) => p.blocking).map((p) => ({ port: p.name, state: "Blocking" })) }) : s ? `<div class="faint" style="font-size:12.5px">${esc(s.model || s.family)} ${s.portsTotal ? `· ${s.portsUp}/${s.portsTotal} ports up` : ""}</div>` : `<div class="faint" style="font-size:12.5px">No data collected yet</div>`}</div>
   </div>`;
@@ -198,27 +206,120 @@ async function refreshAll(btn) {
 }
 
 // ---------- switches list ----------
+// search matches name, address, site, model, software, family and status words
+function switchMatches(v, q) {
+  if (!q) return true;
+  const s = v.summary || {};
+  const state = v.disabled ? "disabled paused" : !v.status.checked ? "unknown" : v.status.online ? "online up" : "offline down";
+  const hay = [v.name, v.host, v.site, v.notes, s.hostname, s.model, s.software, s.family, s.serial, state, v.worst, v.worst ? "problem" : ""].join(" ").toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+}
+
+S.sel = new Set();
+const switchesWord = (n) => `${n} switch${n === 1 ? "" : "es"}`;
+
 function renderSwitches(soft) {
   const d = S.dash;
   if (!d) return;
-  const q = S.query.toLowerCase();
-  const rows = d.switches.filter((v) => !q || [v.name, v.host, v.site, v.summary?.hostname, v.summary?.model, v.summary?.software].join(" ").toLowerCase().includes(q));
-  const table = `<table><thead><tr><th></th><th>Name</th><th>Address</th><th>Site</th><th>Type</th><th>Model</th><th>Software</th><th>Uptime</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">Ports up</th><th>STP</th><th>Problems</th><th>Collected</th></tr></thead><tbody>
+  const rows = d.switches.filter((v) => switchMatches(v, S.query));
+  const ids = new Set(d.switches.map((v) => v.id));
+  for (const id of S.sel) if (!ids.has(id)) S.sel.delete(id);
+  const allOn = rows.length > 0 && rows.every((v) => S.sel.has(v.id));
+  const table = `<table class="swlist"><thead><tr>
+      <th class="cb nogo"><input type="checkbox" title="Select all shown" ${allOn ? "checked" : ""} onchange="selectAll(this.checked)"></th>
+      <th></th><th>Name</th><th>Address</th><th>Site</th><th>Type</th><th>Model</th><th>Software</th><th>Uptime</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">Ports up</th><th>STP</th><th>Problems</th><th>Collected</th><th></th></tr></thead><tbody>
     ${rows.map((v) => {
       const s = v.summary || {};
-      return `<tr class="click" data-go="#/switch/${v.id}"><td>${statusDot(v)}</td><td>${esc(v.name || s.hostname || "")}</td><td class="mono">${esc(v.host)}</td><td>${esc(v.site)}</td>
+      return `<tr class="click${v.disabled ? " off" : ""}${S.sel.has(v.id) ? " picked" : ""}" data-go="#/switch/${v.id}">
+      <td class="cb nogo"><input type="checkbox" ${S.sel.has(v.id) ? "checked" : ""} onchange="toggleSel('${v.id}', this.checked)"></td>
+      <td>${v.disabled ? `<span class="dot" title="Disabled"></span>` : statusDot(v)}</td>
+      <td>${esc(v.name || s.hostname || "")}${v.disabled ? ` <span class="tag">disabled</span>` : ""}</td><td class="mono">${esc(v.host)}</td><td>${esc(v.site)}</td>
       <td>${esc(s.family || "")}</td><td>${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${esc(s.uptime || "")}</td>
       <td class="num">${s.cpu >= 0 && s.cpu !== undefined ? s.cpu + "%" : ""}</td><td class="num">${s.memory >= 0 && s.memory !== undefined ? s.memory + "%" : ""}</td>
       <td class="num">${s.portsTotal ? `${s.portsUp}/${s.portsTotal}` : ""}</td><td>${esc(s.stpRole || "")}</td>
-      <td>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td></tr>`;
-    }).join("")}</tbody></table>`;
-  if (soft && $("#swtable")) { $("#swtable").innerHTML = table; return; }
+      <td>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td>
+      <td class="acts nogo"><button class="ib" title="${v.disabled ? "Enable" : "Disable"}" onclick="setDisabled(['${v.id}'], ${!v.disabled})">${v.disabled ? ICON.play : ICON.pause}</button><button class="ib danger" title="Delete" onclick="deleteSwitches(['${v.id}'])">${ICON.trash}</button></td></tr>`;
+    }).join("")}</tbody></table>
+    ${rows.length ? "" : `<div class="empty">No switches match “${esc(S.query)}”. <a onclick="clearSearch()">Clear search</a></div>`}`;
+  const n = S.sel.size;
+  const bar = n ? `<div class="selbar"><b>${n} selected</b><span class="grow"></span>
+      <button class="btn small" onclick="refreshSel()">${ICON.refresh}Collect now</button>
+      <button class="btn small" onclick="setDisabled([...S.sel], true)">${ICON.pause}Disable</button>
+      <button class="btn small" onclick="setDisabled([...S.sel], false)">${ICON.play}Enable</button>
+      <button class="btn small danger" onclick="deleteSwitches([...S.sel])">${ICON.trash}Delete</button>
+      <button class="btn small" onclick="S.sel.clear();renderSwitches(true)">Clear</button></div>` : "";
+  const counts = `${d.total}${d.disabled ? ` <span class="faint">(${d.disabled} disabled)</span>` : ""}${S.query ? ` <span class="faint">${rows.length} shown</span>` : ""}`;
+  if (soft && $("#swtable")) {
+    $("#swtable").innerHTML = d.total ? table : emptyList();
+    $("#selbar").innerHTML = bar;
+    $("#swcount").innerHTML = counts;
+    return;
+  }
   $("#main").innerHTML = `<div class="page">
-    <div class="head"><h1>Switches</h1><span class="sub">${d.total}</span><span class="grow"></span>
-      <input type="text" class="search" placeholder="Filter by name, address, model" value="${esc(S.query)}" oninput="S.query=this.value;renderSwitches(true)">
+    <div class="head"><h1>Switches</h1><span class="sub" id="swcount">${counts}</span><span class="grow"></span>
+      <span class="searchbox">${ICON.search}<input type="text" id="swsearch" placeholder="Search switches  /" value="${esc(S.query)}" oninput="S.query=this.value;renderSwitches(true)" title="Name, address, site, model or software. Also: online, offline, disabled, problem"></span>
       <button class="btn" onclick="openBulkModal()">Add many</button>
       <button class="btn primary" onclick="openSwitchModal()">${ICON.plus}Add switch</button></div>
-    <div class="panel" id="swtable">${d.total ? table : `<div class="empty"><h3>No switches yet</h3><p>Add one by address, or paste a list with Add many.</p></div>`}</div></div>`;
+    <div id="selbar">${bar}</div>
+    <div class="panel" id="swtable">${d.total ? table : emptyList()}</div></div>`;
+}
+
+function emptyList() {
+  return `<div class="empty"><h3>No switches yet</h3><p>Add one by address, or paste a list with Add many.</p></div>`;
+}
+
+function clearSearch() {
+  S.query = "";
+  if ($("#swsearch")) $("#swsearch").value = "";
+  renderSwitches(true);
+}
+
+function toggleSel(id, on) {
+  on ? S.sel.add(id) : S.sel.delete(id);
+  renderSwitches(true);
+}
+
+function selectAll(on) {
+  for (const v of S.dash.switches.filter((v) => switchMatches(v, S.query))) on ? S.sel.add(v.id) : S.sel.delete(v.id);
+  renderSwitches(true);
+}
+
+function nameOf(id) {
+  const v = S.dash.switches.find((x) => x.id === id);
+  return v ? v.name || v.summary?.hostname || v.host : id;
+}
+
+async function setDisabled(ids, disabled) {
+  if (!ids.length) return;
+  try {
+    await call("SetDisabled", ids, disabled);
+    toast(`${disabled ? "Disabled" : "Enabled"} ${ids.length === 1 ? nameOf(ids[0]) : switchesWord(ids.length)}`);
+    S.dash = await call("GetDashboard");
+    renderSide();
+    if ((S.route[0] || "") === "switches") renderSwitches(true);
+    else if (S.route[0] === "switch") loadDetail(S.route[1]);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteSwitches(ids) {
+  if (!ids.length) return;
+  const what = ids.length === 1 ? nameOf(ids[0]) : switchesWord(ids.length);
+  if (!confirm(`Delete ${what} from SwitchDesk, with their saved configs? The switches themselves aren't changed.`)) return;
+  try {
+    await call("DeleteSwitches", ids);
+    ids.forEach((id) => S.sel.delete(id));
+    toast(`Deleted ${what}`);
+    S.dash = await call("GetDashboard");
+    renderSide();
+    if (S.route[0] === "switch") location.hash = "#/switches";
+    else renderSwitches(true);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function refreshSel() {
+  const ids = [...S.sel].filter((id) => !S.dash.switches.find((v) => v.id === id)?.disabled);
+  for (const id of ids) await call("Refresh", id);
+  toast(`Collecting from ${switchesWord(ids.length)}`);
 }
 
 // ---------- switch detail ----------
@@ -238,6 +339,7 @@ function updateDetailHead() {
 }
 
 function detailStatus(v) {
+  if (v.disabled) return `<span class="faint">Disabled</span>`;
   if (v.status.collecting) return `<span class="faint">Collecting…</span>`;
   if (!v.status.checked) return `<span class="faint">Checking…</span>`;
   return v.status.online ? `<span class="ok">Online</span> <span class="faint">${v.status.latencyMs} ms</span>` : `<span class="bad">Offline since ${new Date(v.status.since).toLocaleString()}</span>`;
@@ -256,11 +358,13 @@ function renderDetail(soft) {
     return;
   }
   const banners = [];
+  if (d.disabled) banners.push(`<div class="banner" style="background:rgba(139,149,167,.08);border-color:var(--line)"><div class="grow"><b>This switch is disabled.</b> SwitchDesk doesn't check or read it and raises no problems for it. The data below is from its last reading.</div><button class="btn" onclick="setDisabled(['${d.id}'], false)">${ICON.play}Enable</button></div>`);
   if (d.status.hostKeyChanged) banners.push(`<div class="banner"><div class="grow"><b>The SSH host key changed.</b> SwitchDesk stopped connecting to protect your credentials. If this switch was replaced or reset, trust the new key.</div><button class="btn" onclick="trustKey()">Trust new key</button></div>`);
   if (d.status.authFailed) banners.push(`<div class="banner"><div class="grow"><b>Login failed.</b> ${esc(d.status.collectError)}. Fix the credentials, then collect again.</div><button class="btn" onclick="openSwitchModal(S.detail)">Edit switch</button></div>`);
   $("#main").innerHTML = `<div class="page">
     <div class="head"><button class="btn small" data-go="#/switches" title="Back">${ICON.back}</button><h1>${esc(name)}</h1><span id="detail-status">${detailStatus(d)}</span><span class="grow"></span>
-      <button class="btn" onclick="collectOne(this)">${ICON.refresh}Collect now</button>
+      ${d.disabled ? "" : `<button class="btn" onclick="collectOne(this)">${ICON.refresh}Collect now</button>`}
+      <button class="btn" onclick="setDisabled(['${d.id}'], ${!d.disabled})">${d.disabled ? ICON.play + "Enable" : ICON.pause + "Disable"}</button>
       <button class="btn" onclick="openSwitchModal(S.detail)">Edit</button></div>
     <div class="idline"><span class="mono"><b>${esc(d.host)}</b>${d.port !== 22 ? ":" + d.port : ""}</span>
       ${s ? `<span>${esc(s.family)}</span><span><b>${esc(s.model || "Unknown model")}</b></span><span class="mono">${esc(s.software)}</span><span>Up ${esc(s.uptime || "?")}</span>` : ""}
@@ -652,7 +756,10 @@ function closeModal() {
   $(".veil")?.remove();
   if (S.modalOpen) { S.modalOpen = false; refreshData(); }
 }
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.modalOpen) closeModal(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.modalOpen) closeModal();
+  if (e.key === "/" && !S.modalOpen && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && $("#swsearch")) { e.preventDefault(); $("#swsearch").focus(); }
+});
 
 function credOptions(sel) {
   return S.creds.map((c) => `<option value="${c.id}" ${c.id === sel ? "selected" : ""}>${esc(c.name)} (${esc(c.username)})</option>`).join("") + `<option value="__new">New credentials…</option>`;

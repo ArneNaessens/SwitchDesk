@@ -178,6 +178,34 @@ func (a *App) DeleteSwitch(id string) error {
 	return nil
 }
 
+// DeleteSwitches removes several switches and their saved data.
+func (a *App) DeleteSwitches(ids []string) error {
+	for _, id := range ids {
+		if err := a.st.DeleteSwitch(id); err != nil {
+			return err
+		}
+		a.mgr.Forget(id)
+	}
+	a.emit("")
+	return nil
+}
+
+// SetDisabled pauses (no polling, no SSH, no alerts) or resumes switches.
+func (a *App) SetDisabled(ids []string, disabled bool) error {
+	if err := a.st.SetDisabled(ids, disabled); err != nil {
+		return err
+	}
+	if !disabled {
+		go func() {
+			for _, id := range ids {
+				a.mgr.Resume(id)
+			}
+		}()
+	}
+	a.emit("")
+	return nil
+}
+
 func (a *App) TestSwitch(sw store.Switch) (string, error) { return a.mgr.TestConnection(sw) }
 
 func (a *App) Refresh(id string) { a.mgr.Enqueue(id) }

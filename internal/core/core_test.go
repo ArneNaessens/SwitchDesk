@@ -109,3 +109,27 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal("backup dedupe", saved, again)
 	}
 }
+
+func TestDisabledSwitch(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.SaveSwitch(store.Switch{Host: "10.9.9.1"})
+	b, _ := st.SaveSwitch(store.Switch{Host: "10.9.9.2"})
+	m := New(st, nil)
+	m.status[a.ID] = &Status{Checked: true, Online: false}
+	m.status[b.ID] = &Status{Checked: true, Online: false}
+	if d := m.Dashboard(); d.Offline != 2 || d.Critical != 2 {
+		t.Fatalf("before: %+v", d)
+	}
+	st.SetDisabled([]string{b.ID}, true)
+	d := m.Dashboard()
+	if d.Offline != 1 || d.Disabled != 1 || d.Critical != 1 || d.Total != 2 {
+		t.Fatalf("after: offline=%d disabled=%d critical=%d", d.Offline, d.Disabled, d.Critical)
+	}
+	m.Enqueue(b.ID)
+	if m.stat(b.ID).Collecting {
+		t.Fatal("paused switch was queued")
+	}
+}

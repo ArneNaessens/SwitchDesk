@@ -30,6 +30,7 @@ type Switch struct {
 	Site         string       `json:"site"`
 	Notes        string       `json:"notes"`
 	HostKey      string       `json:"hostKey"`
+	Disabled     bool         `json:"disabled"` // paused: not polled, not read, no alerts
 	CreatedAt    time.Time    `json:"createdAt"`
 }
 
@@ -259,6 +260,22 @@ func (s *Store) SetHostKey(id, key string) {
 			s.saveLocked()
 		}
 	}
+}
+
+// SetDisabled pauses or resumes the given switches.
+func (s *Store) SetDisabled(ids []string, disabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	for i := range s.d.Switches {
+		if want[s.d.Switches[i].ID] {
+			s.d.Switches[i].Disabled = disabled
+		}
+	}
+	return s.saveLocked()
 }
 
 func (s *Store) DeleteSwitch(id string) error {

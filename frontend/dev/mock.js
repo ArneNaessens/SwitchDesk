@@ -28,14 +28,15 @@
       id: s.id, name: s.name, host: s.host, port: 22, family: "auto", credentialId: "c1", site: "HQ",
       status: { online: !s.offline, checked: true, latencyMs: s.offline ? 0 : 2 + (s.host.length % 5), since: mins(s.offline ? 47 : 3000), collecting: false, lastCollect: mins(4) },
       summary: s.offline ? { family: "AOS-S", hostname: s.name, model: "JL256A 2930F-48G-PoE+-4SFP+", software: "WC.16.11.0015", ports: [], collectedAt: mins(300) } : { family: s.fam, hostname: s.name, model: s.model, software: s.sw, serial: "SG" + s.id.toUpperCase() + "123", uptime: "41 days", cpu: s.id === "acc2" ? 37 : 6, memory: 31, vlans: 6, portsUp: s.p.filter((x) => x.up).length, portsTotal: s.p.length, neighbors: 3, stpRole: s.role, collectedAt: mins(4), ports: s.p },
-      issues, worst: issues[0]?.severity || "",
+      issues, worst: issues[0]?.severity || "", disabled: false,
     };
   });
+  views.push({ ...views[6], id: "old1", name: "old-2530-lab", host: "10.10.9.40", disabled: true, issues: [], worst: "", summary: { ...views[6].summary, model: "J9774A 2530-8G-PoEP", portsTotal: 10 } });
   const allIssues = views.flatMap((v) => v.issues);
   allIssues.push({ severity: "warning", category: "Spanning tree", switchName: "Network", title: "2 different spanning-tree roots", detail: "Expected one root per STP domain. Roots seen: 00:11:22:aa:bb:cc (core-cx-01, agg-cx-a, acc-2930-f1); 00:24:a8:10:00:01 (office-1930)." });
   const order = { critical: 0, warning: 1, info: 2 };
   allIssues.sort((a, b) => order[a.severity] - order[b.severity]);
-  const dash = { total: 7, online: 6, offline: 1, unknown: 0, critical: allIssues.filter((i) => i.severity === "critical").length, warning: allIssues.filter((i) => i.severity === "warning").length, info: allIssues.filter((i) => i.severity === "info").length, collecting: 0, issues: allIssues, switches: views, dataDir: "/Users/jaba/Library/Application Support/SwitchDesk" };
+  const dash = { disabled: 1, total: 8, online: 6, offline: 1, unknown: 0, critical: allIssues.filter((i) => i.severity === "critical").length, warning: allIssues.filter((i) => i.severity === "warning").length, info: allIssues.filter((i) => i.severity === "info").length, collecting: 0, issues: allIssues, switches: views, dataDir: "/Users/jaba/Library/Application Support/SwitchDesk" };
   const vlans = [
     { id: 1, name: "DEFAULT_VLAN", untagged: Array.from({ length: 40 }, (_, i) => String(i + 1)), tagged: [] },
     { id: 10, name: "Management", ip: "10.10.1.11 255.255.255.0", untagged: [], tagged: ["49", "50"] },
@@ -109,7 +110,7 @@ password manager`;
     PickDataFolder: async () => ({ path: "/Users/jaba/Dropbox/SwitchDesk", hasData: false, switches: 0, writable: true, same: false }),
     PickImportFile: async () => "/Users/jaba/Downloads/SwitchDesk-2026-10-23.sdbak",
     InspectImport: async () => ({ switches: 7, createdAt: new Date().toISOString(), history: true }),
-    StartupNotice: async () => "", OpenDataFolder: async () => {},
+    StartupNotice: async () => "", SetDisabled: async () => {}, DeleteSwitches: async () => {}, OpenDataFolder: async () => {},
   } } };
   window.runtime = { EventsOn: () => {} };
 })();

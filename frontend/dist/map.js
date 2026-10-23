@@ -224,13 +224,13 @@ const SDMap = (() => {
     const w = SW.w, h = SW.h, x = n.x - w / 2, y = n.y - h / 2;
     const sel = selected === n.id, hov = hover === n.id;
     ctx.fillStyle = sel ? "#2f3a4d" : hov ? C.panel2 : C.panel;
-    ctx.strokeStyle = sel ? C.accent : n.online ? C.border : C.crit;
+    ctx.strokeStyle = sel ? C.accent : n.disabled || n.online ? C.border : C.crit;
     ctx.lineWidth = sel ? 2 : 1.2;
     rr(x, y, w, h, 5);
     ctx.fill();
     ctx.stroke();
     // status strip and a row of tiny port LEDs, echoing the dashboard faceplate
-    ctx.fillStyle = n.online ? C.up : C.crit;
+    ctx.fillStyle = n.disabled ? "#5d677a" : n.online ? C.up : C.crit;
     rr(x + 6, y + 8, 4, h - 16, 2);
     ctx.fill();
     ctx.fillStyle = C.text;
