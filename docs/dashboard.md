@@ -37,6 +37,7 @@ Hover an LED for the port number, speed, VLAN and description.
 | Topology changes since last check | Usually a flapping link or an edge port without `admin-edge`. |
 | Root bridge elected by default priority | The root was picked by MAC address, not by design. |
 | More than one spanning-tree root | Switches linked at layer 2 disagree on the root: mixed MST regions or a link with spanning tree off. Branches connected only through routers each have their own root and aren't flagged. |
+| Optical power alarm / warning | A transceiver receives too little or too much light. AOS-CX compares against the optic's own levels; AOS-S reports its recent optical alarms. |
 | Plain HTTP web management (AOS-S) | Web logins aren't encrypted. |
 | No NTP/SNTP server | Log times and certificates depend on correct time. |
 | Unsaved configuration changes (AOS-S) | Changes are lost on the next reboot. |

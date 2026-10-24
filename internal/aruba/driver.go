@@ -30,6 +30,7 @@ func commandsFor(f Family) []command {
 			{key: "ssh", cmd: "show ssh server all-vrfs", alt: []string{"show ssh server"}},
 			{key: "vlans", cmd: "show vlan"},
 			{key: "interfaces", cmd: "show interface brief"},
+			{key: "optics", cmd: "show interface dom detail", alt: []string{"show interface transceiver detail"}},
 			{key: "lldp", cmd: "show lldp neighbor-info detail"},
 			{key: "cdp", cmd: "show cdp neighbor-info detail", alt: []string{"show cdp neighbor-info"}},
 			{key: "fans", cmd: "show environment fan"},
@@ -58,6 +59,7 @@ func commandsFor(f Family) []command {
 			{key: "ssh", cmd: "show ip ssh"},
 			{key: "vlans", cmd: "show vlans"},
 			{key: "interfaces", cmd: "show interfaces brief"},
+			{key: "optics", cmd: "show interfaces transceiver detail", alt: []string{"show interfaces transceivers detail"}},
 			{key: "lldp", cmd: "show lldp info remote-device detail"},
 			{key: "cdp", cmd: "show cdp neighbors detail"},
 			{key: "fans", cmd: "show system fans"},
@@ -190,6 +192,9 @@ func parseInto(s *Snapshot) {
 	}
 	s.VLANs = MergeVLANs(cfgVLANs, ParseVLANTable(raw["vlans"]))
 	s.Ports = ParseInterfacesBrief(raw["interfaces"])
+	if o := raw["optics"]; o != "" && !IsCLIError(o) {
+		s.Optics = ParseOptics(o)
+	}
 	s.Neighbors = append(ParseNeighbors(raw["lldp"], "lldp"), ParseNeighbors(raw["cdp"], "cdp")...)
 	s.Env = append(append(ParseEnv("fan", raw["fans"]), ParseEnv("psu", raw["psu"])...), ParseEnv("temp", raw["temp"])...)
 	s.Logs = ParseLogs(raw["logs"], 60)

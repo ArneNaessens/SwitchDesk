@@ -55,7 +55,8 @@ async function call(fn, ...args) {
 // ---------- faceplate ----------
 function isFiber(p) { return /sfp|xfp|qsfp|fiber|dac|sr|lr/i.test(p.type || "") || /^Trk|^lag/i.test(p.name); }
 
-function leds(ports, stp, big) {
+function leds(ports, stp, big, optics) {
+  const opt = Object.fromEntries((optics || []).map((o) => [o.port, o]));
   if (!ports || !ports.length) return `<div class="leds none">No port data yet</div>`;
   const blocking = new Set((stp?.ports || []).filter((p) => /Blocking|Discarding/.test(p.state)).map((p) => p.port));
   const phys = ports.filter((p) => !/^(Trk|lag)/i.test(p.name));
@@ -69,7 +70,7 @@ function leds(ports, stp, big) {
     const rows = g.ports.length > 8 ? 2 : 1;
     const cells = g.ports.map((p) => {
       const cls = !p.enabled ? "x" : p.loop ? "l" : blocking.has(p.name) ? "b" : p.up ? "u" : "";
-      const tip = `Port ${p.name}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}${p.description ? " (" + p.description + ")" : ""}`;
+      const tip = `Port ${p.name}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${opt[p.name]?.rx?.length ? `, Rx ${opt[p.name].rx.map(dbm).join("/")} dBm` : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}${p.description ? " (" + p.description + ")" : ""}`;
       return `<i class="${cls}" title="${esc(tip)}"></i>`;
     }).join("");
     return `<span class="ledgrp" style="--r:${rows}">${cells}</span>`;
@@ -469,7 +470,7 @@ function tabOverview(d, snap) {
   const f = snap.facts, st = snap.stp, sec = snap.security, set = S.settings || { cpuWarn: 80, memWarn: 90 };
   const isS = snap.family === "aos-s";
   const env = snap.env || [];
-  return `${leds(snap.ports, st, true)}<div style="height:16px"></div>
+  return `${leds(snap.ports, st, true, snap.optics)}<div style="height:16px"></div>
   <div class="grid2">
     <section class="panel"><h2>Problems on this switch</h2>
       ${d.issues.length ? d.issues.map(issueRow).join("") : `<div class="empty" style="padding:22px"><h3>Nothing to fix</h3></div>`}</section>
@@ -525,11 +526,43 @@ function tabSTP(snap) {
 function tabPorts(snap) {
   const p = snap.ports || [];
   const memb = portVLANs(snap);
-  return `${leds(p, snap.stp, true)}<div style="height:16px"></div><section class="panel">
+  return `${leds(p, snap.stp, true, snap.optics)}<div style="height:16px"></div>${opticsPanel(snap)}<section class="panel">
     <table><thead><tr><th>Port</th><th>Status</th><th>Enabled</th><th>Speed</th><th>Type</th><th>VLANs</th><th>Description</th></tr></thead><tbody>
     ${p.map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="${x.up ? "ok" : "faint"}">${x.up ? "Up" : "Down"}</td><td>${x.enabled ? "Yes" : `<span class="warnc">No</span>`}</td>
       <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td><td>${esc(x.description)}</td></tr>`).join("")}
     </tbody></table></section>`;
+}
+
+// Transceivers with their optical levels. Thresholds are the optic's own when
+// it reports them (AOS-CX); AOS-S shows its recent alarms instead.
+const dbm = (v) => (v === undefined || v === null ? "" : v <= -40 ? "no light" : v.toFixed(1));
+function opticJudge(o, upPorts) {
+  const rx = o.rx?.length ? Math.min(...o.rx) : null;
+  const lt = (a, b) => a !== null && b !== undefined && b !== null && a <= b;
+  const gt = (a, b) => a !== null && b !== undefined && b !== null && a >= b;
+  const flags = (o.alarms || []).map((a) => a.toLowerCase());
+  if (!o.dom) return ["faint", "No DOM"];
+  if (upPorts && upPorts[o.port] === false && (rx === null || rx <= -40)) return ["faint", "Not connected"];
+  if (lt(rx, o.rxLowAlarm) || gt(rx, o.rxHighAlarm) || (!o.recent && flags.some((f) => f.includes("alarm")))) return ["bad", "Alarm"];
+  if (lt(rx, o.rxLowWarn) || gt(rx, o.rxHighWarn) || flags.length) return ["warnc", o.recent ? "Recent alarm" : "Warning"];
+  if (rx !== null && rx <= -40) return ["warnc", "No light"];
+  return rx !== null ? ["ok", "OK"] : ["faint", ""];
+}
+function opticsPanel(snap) {
+  const o = snap.optics || [];
+  if (!o.length) return "";
+  const up = Object.fromEntries((snap.ports || []).map((p) => [p.name, p.up]));
+  const rng = (lo, hi) => (lo !== undefined && lo !== null ? `${dbm(lo)} to ${hi !== undefined && hi !== null ? dbm(hi) : "?"}` : "");
+  return `<section class="panel" style="margin-bottom:16px"><h2>Optics<span class="grow"></span><span class="faint" style="font-weight:400;font-size:12.5px">Power in dBm</span></h2>
+    <table><thead><tr><th>Port</th><th>Type</th><th class="num">Rx</th><th class="num">Tx</th><th>Rx warning range</th><th class="num">Temp</th><th>Status</th><th>Serial</th></tr></thead><tbody>
+    ${o.map((x) => {
+      const [cls, label] = opticJudge(x, up);
+      const lanes = (v) => (v?.length > 1 ? v.map(dbm).join(" / ") : dbm(v?.[0]));
+      return `<tr><td class="mono">${esc(x.port)}</td><td>${esc(x.type)}${x.model ? ` <span class="faint">${esc(x.model)}</span>` : ""}</td>
+        <td class="num mono ${cls === "bad" || cls === "warnc" ? cls : ""}">${lanes(x.rx)}</td><td class="num mono">${lanes(x.tx)}</td>
+        <td class="mono faint">${rng(x.rxLowWarn, x.rxHighWarn)}</td><td class="num">${x.tempC !== undefined && x.tempC !== null ? x.tempC.toFixed(0) + "°C" : ""}</td>
+        <td class="${cls}">${label}${x.alarms?.length ? ` <span class="faint" style="font-size:12px">${esc(x.alarms.join(", "))}</span>` : ""}</td><td class="mono faint">${esc(x.serial || "")}</td></tr>`;
+    }).join("")}</tbody></table></section>`;
 }
 
 function portVLANs(snap) {

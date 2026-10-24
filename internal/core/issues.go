@@ -77,6 +77,7 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 		return out
 	}
 
+	opticIssues(snap, add)
 	for _, n := range snap.Notes {
 		add(Severity(n.Severity), n.Category, n.Title, n.Detail)
 	}
@@ -286,4 +287,48 @@ func displayName(sw store.Switch, snap *aruba.Snapshot) string {
 		return snap.Facts.Hostname
 	}
 	return sw.Host
+}
+
+// opticIssues flags transceivers whose optical levels are out of range. Ports
+// that are down with no light are skipped: an SFP in an empty port is normal.
+func opticIssues(snap *aruba.Snapshot, add func(sev Severity, cat, title, detail string)) {
+	up := map[string]bool{}
+	known := map[string]bool{}
+	for _, p := range snap.Ports {
+		up[p.Name], known[p.Name] = p.Up, true
+	}
+	var crit, warn []string
+	for _, o := range snap.Optics {
+		level, reason := o.Judge()
+		if level == "" {
+			continue
+		}
+		rx, hasRx := o.WorstRx()
+		if known[o.Port] && !up[o.Port] && (!hasRx || rx <= aruba.NoLight) {
+			continue
+		}
+		d := "port " + o.Port
+		if o.Type != "" {
+			d += " (" + o.Type + ")"
+		}
+		if hasRx {
+			d += fmt.Sprintf(": Rx %.1f dBm", rx)
+			if o.RxLowWarn != nil && strings.Contains(reason, "below") {
+				d += fmt.Sprintf(", warning at %.1f", *o.RxLowWarn)
+			}
+		}
+		d += ", " + reason
+		if level == "alarm" {
+			crit = append(crit, d)
+		} else {
+			warn = append(warn, d)
+		}
+	}
+	tip := ". Clean the connectors, check the patch cords and the optic on the far end."
+	if len(crit) > 0 {
+		add(Critical, "Optics", fmt.Sprintf("Optical power alarm on %d port(s)", len(crit)), strings.Join(crit, "; ")+tip)
+	}
+	if len(warn) > 0 {
+		add(Warning, "Optics", fmt.Sprintf("Optical power warning on %d port(s)", len(warn)), strings.Join(warn, "; ")+tip)
+	}
 }

@@ -94,6 +94,12 @@ password manager`;
     logs: [{ severity: "W", text: "W 10/23/26 21:14:02 00077 ports: port 12 is now off-line" }, { severity: "M", text: "M 10/23/26 20:02:51 00435 ports: port 50 is Disabled by Loop Protect" }, { severity: "I", text: "I 10/23/26 19:55:10 00076 ports: port 12 is now on-line" }],
     raw: { system: "  System Name        : acc-2930-f1\n  Software revision  : WC.16.11.0015", stp: "...", config: cfg },
     runningConfig: cfg, errors: [],
+    optics: [
+      { port: "49", type: "SFP+SR", model: "J9150D", serial: "CN84KJ01A2", dom: true, tempC: 34.2, rx: [-2.7], tx: [-2.3], recent: false },
+      { port: "50", type: "SFP+LR", model: "J9151E", serial: "CN84KJ09Q7", dom: true, tempC: 38.9, rx: [-23.9], tx: [-2.4], alarms: ["Rx power low alarm", "Rx power low warning"], recent: true },
+      { port: "51", type: "SFP+SR", model: "J9150D", serial: "CN84KJ0333", dom: true, tempC: 31.0, rx: [-40], tx: [-2.5] },
+      { port: "52", type: "SFP+DAC1", dom: false },
+    ],
   };
   const topoNodes = views.map((v) => ({ id: v.id, label: v.name, kind: "switch", managed: true, host: v.host, model: v.summary?.model, online: v.status.online, severity: v.worst, issues: v.issues.length, stpRoot: v.id === "core" }));
   topoNodes.push({ id: "ext:fw", label: "fw-edge-01", kind: "router", host: "10.10.0.254", model: "FortiGate-100F", online: true });

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -188,5 +189,35 @@ func TestTopologyOverlappingBranchIPs(t *testing.T) {
 	topo = buildTopology([]switchInfo{{sw: stack, snap: stackSnap, online: true}, {sw: acc, snap: accSnap, online: true}}, nil, false)
 	if len(topo.Nodes) != 2 || len(topo.Edges) != 1 {
 		t.Fatalf("stack link: nodes %+v edges %+v", topo.Nodes, topo.Edges)
+	}
+}
+
+func TestOpticIssues(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	snap := &aruba.Snapshot{
+		Family: aruba.FamilyAOSCX, CollectedAt: time.Now(),
+		Ports: []aruba.Port{{Name: "1/1/49", Up: true, Enabled: true}, {Name: "1/1/50", Up: true, Enabled: true}, {Name: "1/1/51", Up: false, Enabled: true}, {Name: "1/1/52", Up: true, Enabled: true}},
+		Optics: []aruba.Optic{
+			{Port: "1/1/49", Type: "SFP+LR", DOM: true, Rx: []float64{-14.2}, RxLowWarn: f(-14), RxLowAlarm: f(-18)},
+			{Port: "1/1/50", Type: "SFP+SR", DOM: true, Rx: []float64{-19.5}, RxLowWarn: f(-10), RxLowAlarm: f(-13)},
+			{Port: "1/1/51", Type: "SFP+SR", DOM: true, Rx: []float64{aruba.NoLight}, RxLowWarn: f(-10), RxLowAlarm: f(-13)}, // empty port
+			{Port: "1/1/52", Type: "SFP+SR", DOM: true, Rx: []float64{-3}, RxLowWarn: f(-10), RxLowAlarm: f(-13)},
+		},
+	}
+	is := evaluate(store.Switch{ID: "x", Host: "10.0.0.1"}, &Status{Online: true, Checked: true}, snap, store.DefaultSettings())
+	var crit, warn *Issue
+	for i := range is {
+		switch is[i].Title {
+		case "Optical power alarm on 1 port(s)":
+			crit = &is[i]
+		case "Optical power warning on 1 port(s)":
+			warn = &is[i]
+		}
+	}
+	if crit == nil || !strings.Contains(crit.Detail, "1/1/50") || strings.Contains(crit.Detail, "1/1/51") {
+		t.Fatalf("alarm: %+v", is)
+	}
+	if warn == nil || !strings.Contains(warn.Detail, "1/1/49 (SFP+LR): Rx -14.2 dBm, warning at -14.0") {
+		t.Fatalf("warning: %+v", warn)
 	}
 }

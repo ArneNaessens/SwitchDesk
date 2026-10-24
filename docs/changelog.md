@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- Optical levels for SFP, SFP+ and QSFP transceivers on AOS-S and AOS-CX: Rx and Tx power in dBm (per lane on QSFP), temperature, model and serial, in a new **Optics** table on the Ports tab and in the port LED tooltips.
+- New problems: **Optical power alarm** and **Optical power warning**. On AOS-CX they use the levels the transceiver itself reports. AOS-S doesn't report levels, so its recent optical alarms are shown as a warning. Unused SFPs in ports that are down are ignored.
+
 ## 0.7.0
 
 - Instant On switches in local management mode can be added. They have no SSH, so SwitchDesk signs in to the switch's web interface with its admin login, the same encrypted login the web page uses, and signs out after each reading. In **Add switch**, pick **Instant On (local)**; in **Add many**, pick **Instant On (web interface)**.

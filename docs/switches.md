@@ -39,6 +39,8 @@ Bridge and root MAC and priority, this switch's role, topology changes, and ever
 
 A large faceplate and a table with status, speed, type, VLAN membership (`20u` is untagged in VLAN 20, `30t` tagged in VLAN 30) and port descriptions.
 
+Switches with transceivers also get an **Optics** table: Rx and Tx power in dBm (one value per lane on QSFP), temperature, model and serial. On AOS-CX it shows the optic's own warning range and judges against it. AOS-S doesn't report those levels, so its recent optical alarms are shown instead. A port that's down with no light shows as *Not connected*, and DAC cables show *No DOM*. The readings come from `show interface dom detail` on AOS-CX and `show interfaces transceiver detail` on AOS-S.
+
 ### VLANs
 
 The switch's VLANs, with editing. See [VLANs](vlans.md).

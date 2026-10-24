@@ -146,8 +146,9 @@ type Snapshot struct {
 	Cloud         *CloudInfo        `json:"cloud,omitempty"` // Instant On switches read from the portal
 	// Notes are problems a driver found that the generic rules can't see,
 	// such as a wrong clock reported by the switch's web interface.
-	Notes []Note `json:"notes,omitempty"`
-	Web   bool   `json:"web,omitempty"` // read through the switch's web interface
+	Notes  []Note  `json:"notes,omitempty"`
+	Optics []Optic `json:"optics,omitempty"` // transceivers with their optical levels
+	Web    bool    `json:"web,omitempty"`    // read through the switch's web interface
 }
 
 type Note struct {
