@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SwitchDesk: desktop app for Aruba switches, for Mac and Windows</title>
+<meta name="description" content="Free desktop app for Aruba AOS-CX, AOS-S/ProCurve and Instant On switches. Dashboard, problem checks, VLANs, network map from LLDP and CDP, and firmware updates. SSH only, nothing leaves your computer.">
+<meta property="og:title" content="SwitchDesk: every Aruba switch on one desk">
+<meta property="og:description" content="Free desktop app for Aruba switches. SSH only, macOS and Windows.">
+<meta property="og:image" content="https://jaba0x.github.io/SwitchDesk/img/dashboard.webp">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#050608">
+<link rel="icon" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-in">
+    <a class="brand" href="#top"><img src="img/logo.svg" alt="" width="30" height="30"><span>SwitchDesk</span></a>
+    <nav class="links">
+      <a href="#features">Features</a>
+      <a href="#switches">Switches</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+      <a href="docs/">Docs</a>
+    </nav>
+    <div class="nav-right">
+      <a class="gh" href="https://github.com/jaba0x/SwitchDesk" aria-label="SwitchDesk on GitHub">
+        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span class="stars" data-stars>GitHub</span>
+      </a>
+      <a class="x" href="https://x.com/jaba0x" aria-label="Jaba on X">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M18.9 1.2h3.7l-8 9.1 9.4 12.5h-7.4l-5.8-7.6-6.6 7.6H.5l8.6-9.8L0 1.2h7.6l5.2 6.9 6.1-6.9zm-1.3 19.4h2L6.5 3.3H4.3l13.3 17.3z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ================= hero ================= -->
+<section class="hero">
+  <canvas class="ports" aria-hidden="true"></canvas>
+  <div class="hero-in">
+    <h1>
+      <span class="dim">Every</span> Aruba switch.<br>
+      <span class="dim">On</span> one desk<span class="dim">.</span>
+    </h1>
+    <p class="hero-sub"><span class="dim">…because forty</span> terminal tabs <span class="dim">aren't a</span> dashboard.</p>
+    <p class="lead">SwitchDesk logs in to your AOS-CX, AOS-S and Instant On switches over SSH and shows what's down, what's misconfigured and how it's all cabled. VLANs, a live network map and firmware updates included.</p>
+    <div class="cta">
+      <a class="btn btn-light" data-dl="mac" href="https://github.com/jaba0x/SwitchDesk/releases/latest">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2.1-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1-3.2-1 0-2.2.7-3 1.6-.6.7-1.2 1.9-1 3.1 1.1.1 2.3-.6 3-1.5z"/></svg>
+        Download for Mac
+      </a>
+      <a class="btn btn-glass" data-dl="win" href="https://github.com/jaba0x/SwitchDesk/releases/latest">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M0 3.4 9.8 2v9.5H0V3.4zm11-1.6L24 0v11.4H11V1.8zM0 12.6h9.8V22L0 20.6v-8zm11 0h13V24l-13-1.8v-9.6z"/></svg>
+        Download for Windows
+      </a>
+      <a class="btn btn-line" href="docs/">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 4.5A1.5 1.5 0 0 1 5.5 3H19v15H5.5A1.5 1.5 0 0 0 4 19.5v-15zM4 19.5A1.5 1.5 0 0 0 5.5 21H19v-3"/></svg>
+        Read the docs
+      </a>
+    </div>
+    <p class="fine">Free · Source on GitHub · SSH only · Nothing leaves your computer · Not affiliated with HPE</p>
+  </div>
+
+  <figure class="stage">
+    <div class="window">
+      <div class="titlebar"><i></i><i></i><i></i><span>SwitchDesk</span></div>
+      <img src="img/dashboard.webp" width="1440" height="880" alt="SwitchDesk dashboard: 6 online, 1 offline, a problem list sorted by severity, and a faceplate with one LED per port for every switch">
+    </div>
+  </figure>
+</section>
+
+<div class="divider" id="features"><span>Features</span></div>
+
+<!-- ================= 01 dashboard ================= -->
+<section class="feature">
+  <p class="eyebrow">01 / Dashboard</p>
+  <h2>The morning check, <span class="dim">in one glance.</span></h2>
+  <p class="body">Online and offline counts, every problem sorted by severity, and each switch drawn as a faceplate with one LED per port. Green is up, grey is down, amber means spanning tree is blocking it.</p>
+  <div class="shot"><img src="img/switches.webp" loading="lazy" width="1440" height="880" alt="Switch list with search, firmware status and bulk actions on selected switches"></div>
+  <ul class="points">
+    <li><b>Search that combines.</b> <code>acc offline</code> finds offline access switches. Press <code>/</code> to jump there.</li>
+    <li><b>Bulk actions.</b> Tick switches to collect, update, disable or delete them together.</li>
+    <li><b>Add many at once.</b> One address per line, <code>name, address</code> pairs, or ranges like <code>10.0.1.20-10.0.1.40</code>.</li>
+  </ul>
+</section>
+
+<!-- ================= 02 checks ================= -->
+<section class="feature">
+  <p class="eyebrow">02 / Problem checks</p>
+  <h2>It notices what you'd <span class="dim">only find</span> one switch at a time.</h2>
+  <p class="body">Every switch is re-read on a schedule and checked against the same rules. The problems land on the dashboard, sorted by how much they matter.</p>
+  <div class="checks">
+    <div class="check"><b class="tag crit">Reachability</b><p>Switch offline, SSH login failing, SSH host key changed since the last connect.</p></div>
+    <div class="check"><b class="tag crit">Spanning tree</b><p>STP disabled, topology changes since the last check, a root chosen by default priority, more than one root in the network.</p></div>
+    <div class="check"><b class="tag crit">Security</b><p>Telnet on, plain HTTP management, the default SNMP community, no manager password.</p></div>
+    <div class="check"><b class="tag warn">Management</b><p>No NTP, no syslog, only local accounts, unsaved config waiting to be lost on reboot.</p></div>
+    <div class="check"><b class="tag warn">Hardware</b><p>Fan, power supply and temperature faults, high CPU or memory.</p></div>
+    <div class="check"><b class="tag info">Logs</b><p>Major and error events from the recent log, so a flapping port doesn't hide in a buffer.</p></div>
+  </div>
+</section>
+
+<!-- ================= 03 switch ================= -->
+<section class="feature">
+  <p class="eyebrow">03 / Switch detail</p>
+  <h2>Everything a switch knows, <span class="dim">without the CLI.</span></h2>
+  <p class="body">System facts, a management access checklist, spanning tree with port roles and states, ports, VLANs, LLDP and CDP neighbors, logs and the running config. A small console runs <code>show</code>, <code>ping</code> and <code>traceroute</code>, and nothing else.</p>
+  <div class="shot"><img src="img/switch-overview.webp" loading="lazy" width="1440" height="880" alt="Switch page with problems, system facts, management access and spanning tree"></div>
+  <div class="trio">
+    <figure><img src="img/switch-stp.webp" loading="lazy" width="1440" height="880" alt="Spanning tree tab"><figcaption>Spanning tree</figcaption></figure>
+    <figure><img src="img/switch-ports.webp" loading="lazy" width="1440" height="880" alt="Ports tab"><figcaption>Ports</figcaption></figure>
+    <figure><img src="img/switch-neighbors.webp" loading="lazy" width="1440" height="880" alt="LLDP and CDP neighbors tab"><figcaption>Neighbors</figcaption></figure>
+  </div>
+</section>
+
+<!-- ================= 04 vlans ================= -->
+<section class="feature">
+  <p class="eyebrow">04 / VLANs</p>
+  <h2>Click a port. <span class="dim">Read the commands.</span> Send.</h2>
+  <p class="body">Create, rename and delete VLANs, and click ports through untagged, tagged and off. You see the exact commands before anything is sent. Sending stops at the first line the switch rejects, and <code>write memory</code> only runs when every line went through.</p>
+  <div class="duo">
+    <figure><img src="img/vlan-editor.webp" loading="lazy" width="1440" height="880" alt="VLAN editor with clickable ports"><figcaption>Edit</figcaption></figure>
+    <figure><img src="img/vlan-review.webp" loading="lazy" width="1440" height="880" alt="Review screen listing the CLI lines to send"><figcaption>Review</figcaption></figure>
+  </div>
+  <ul class="points">
+    <li><b>VLAN matrix.</b> Which switch carries which VLAN, across the whole network.</li>
+    <li><b>Name drift.</b> Flags VLANs whose names don't match between switches.</li>
+  </ul>
+</section>
+
+<!-- ================= 05 map ================= -->
+<section class="feature">
+  <p class="eyebrow">05 / Network map</p>
+  <h2>A map that <span class="dim">draws itself.</span></h2>
+  <p class="body">Built from LLDP and CDP and laid out top-down from the spanning-tree root. Blocked links are dashed amber, down links red. Firewalls, access points and unmanaged switches get their own shapes. Drag things around and the layout is kept.</p>
+  <div class="shot"><img src="img/map.webp" loading="lazy" width="1440" height="880" alt="Network map with the spanning-tree root on top, a blocked link in amber and a down link in red"></div>
+</section>
+
+<!-- ================= 06 firmware ================= -->
+<section class="feature">
+  <p class="eyebrow">06 / Firmware</p>
+  <h2>Firmware updates <span class="dim">that check their own work.</span></h2>
+  <p class="body">See which switches have something newer in your firmware library, then update one or many. The image goes into the spare bank, the switch reboots, and SwitchDesk confirms it came back on the new version. Or let it run on its own inside a maintenance window.</p>
+  <div class="shot"><img src="img/firmware.webp" loading="lazy" width="1440" height="880" alt="Firmware page with available updates, running jobs and the image library"></div>
+  <ul class="points">
+    <li><b>Works over VPN and zero trust.</b> On AOS-S the image is uploaded over SSH, so the switch never has to reach your computer.</li>
+    <li><b>The old version stays.</b> The running image is kept in the other bank as a fallback.</li>
+    <li><b>Your library.</b> Add <code>.swi</code> files or paste a download link from the HPE support portal.</li>
+  </ul>
+</section>
+
+<!-- ================= 07 config ================= -->
+<section class="feature">
+  <p class="eyebrow">07 / Config history</p>
+  <h2>What changed overnight? <span class="dim">Compare it.</span></h2>
+  <p class="body">A copy of the running config is saved every time it changes. Pick any two and see them side by side.</p>
+  <div class="shot"><img src="img/config-compare.webp" loading="lazy" width="1440" height="880" alt="Two saved configs compared side by side"></div>
+</section>
+
+<!-- ================= 08 data ================= -->
+<section class="feature">
+  <p class="eyebrow">08 / Your data</p>
+  <h2>On your computer. <span class="dim">Nowhere else.</span></h2>
+  <p class="body">No account, no cloud, no agents on the switches. Everything lives in one folder you choose, and moving to another computer is one passphrase-protected file.</p>
+  <div class="facts">
+    <div><b>AES-GCM</b><span>Switch passwords encrypted at rest</span></div>
+    <div><b>Argon2id</b><span>Passphrase for export files</span></div>
+    <div><b>Pinned keys</b><span>A changed SSH host key stops the connection</span></div>
+    <div><b>Read-only console</b><span>Only show, ping and traceroute</span></div>
+  </div>
+</section>
+
+<!-- ================= switches ================= -->
+<div class="divider" id="switches"><span>Supported switches</span></div>
+<section class="feature">
+  <h2>Three families. <span class="dim">One app.</span></h2>
+  <p class="body">All a switch needs is SSH, plus LLDP if you want it on the map.</p>
+  <div class="families">
+    <div class="fam">
+      <div class="fam-head"><b>AOS-CX</b><span class="pill ok">Full</span></div>
+      <p>6000, 6100, 6200, 6300, 6400, 8xxx</p>
+    </div>
+    <div class="fam">
+      <div class="fam-head"><b>AOS-S / ProCurve</b><span class="pill ok">Full</span></div>
+      <p>2530, 2540, 2930F/M, 3810, 5400R</p>
+    </div>
+    <div class="fam">
+      <div class="fam-head"><b>Instant On</b><span class="pill part">Partial</span></div>
+      <p>1830, 1930, 1960. Reachability and what the CLI shows. VLANs and firmware stay in the Instant On portal.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= download ================= -->
+<div class="divider" id="download"><span>Download</span></div>
+<section class="feature">
+  <h2>Pick <span class="dim">your</span> platform.</h2>
+  <p class="body">Free. Built from the source on GitHub by GitHub Actions on every release.</p>
+  <div class="platforms">
+    <div class="plat" data-plat="mac">
+      <div class="plat-head">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2.1-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1-3.2-1 0-2.2.7-3 1.6-.6.7-1.2 1.9-1 3.1 1.1.1 2.3-.6 3-1.5z"/></svg>
+        <b>macOS</b>
+      </div>
+      <dl>
+        <dt>Chip</dt><dd>Apple Silicon and Intel</dd>
+        <dt>Version</dt><dd data-ver>Latest</dd>
+        <dt>File</dt><dd>.zip with SwitchDesk.app</dd>
+        <dt>Size</dt><dd data-size="mac">–</dd>
+        <dt>Build</dt><dd>Universal</dd>
+      </dl>
+      <a class="btn btn-light wide" data-dl="mac" href="https://github.com/jaba0x/SwitchDesk/releases/latest">Download for Mac</a>
+      <p class="note">Not notarized yet: right-click the app and choose Open the first time.</p>
+    </div>
+    <div class="plat" data-plat="win">
+      <div class="plat-head">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M0 3.4 9.8 2v9.5H0V3.4zm11-1.6L24 0v11.4H11V1.8zM0 12.6h9.8V22L0 20.6v-8zm11 0h13V24l-13-1.8v-9.6z"/></svg>
+        <b>Windows</b>
+      </div>
+      <dl>
+        <dt>Chip</dt><dd>x64</dd>
+        <dt>Version</dt><dd data-ver>Latest</dd>
+        <dt>File</dt><dd>.zip with SwitchDesk.exe</dd>
+        <dt>Size</dt><dd data-size="win">–</dd>
+        <dt>Needs</dt><dd>Windows 10 or 11</dd>
+      </dl>
+      <a class="btn btn-light wide" data-dl="win" href="https://github.com/jaba0x/SwitchDesk/releases/latest">Download for Windows</a>
+      <p class="note">SmartScreen may warn about an unknown publisher: More info, then Run anyway.</p>
+    </div>
+    <div class="plat">
+      <div class="plat-head">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg>
+        <b>From source</b>
+      </div>
+      <dl>
+        <dt>Language</dt><dd>Go 1.23+</dd>
+        <dt>UI</dt><dd>Wails v2, plain HTML/JS</dd>
+        <dt>Code</dt><dd>github.com/jaba0x/SwitchDesk</dd>
+        <dt>Tests</dt><dd><code>go test ./internal/...</code></dd>
+        <dt>Needs</dt><dd>Xcode CLT on a Mac</dd>
+      </dl>
+      <a class="btn btn-line wide" href="docs/development/">Build it yourself</a>
+      <p class="note">Every switch output that's misread makes a good test case.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= faq ================= -->
+<div class="divider" id="faq"><span>FAQ</span></div>
+<section class="feature faq">
+  <h2>Frequently asked <span class="dim">questions</span></h2>
+  <details>
+    <summary>Does it change anything on my switches?</summary>
+    <p>Reading is read-only. It only changes config when you send a VLAN change you reviewed, run a firmware update, or set the boot bank. A firmware upload on AOS-S turns on <code>ip ssh filetransfer</code> for the upload and puts the previous settings back afterwards.</p>
+  </details>
+  <details>
+    <summary>Do I need to install anything on the switches or a server?</summary>
+    <p>No. SwitchDesk logs in over SSH like you would. There are no agents, no SNMP setup and no server. LLDP is only needed for the network map.</p>
+  </details>
+  <details>
+    <summary>Where are my passwords stored?</summary>
+    <p>In the data folder on your computer, encrypted with AES-GCM using a key only your user account can read. Nothing is sent anywhere else.</p>
+  </details>
+  <details>
+    <summary>Will firmware updates work over a VPN or zero trust access?</summary>
+    <p>Yes for AOS-S: the image is uploaded over SSH, the same connection SwitchDesk already uses. AOS-CX still pulls the image over TFTP, so the switch has to be able to reach your computer on UDP 69.</p>
+  </details>
+  <details>
+    <summary>How many switches can it handle?</summary>
+    <p>It's built for a few dozen to a few hundred. Reachability is checked every 30 seconds and each switch is re-read every 15 minutes; both are adjustable, as is how many switches are read at once.</p>
+  </details>
+  <details>
+    <summary>It misreads my switch. What now?</summary>
+    <p>Open the switch, copy what the Raw output tab shows and post it in <a href="https://github.com/jaba0x/SwitchDesk/discussions">GitHub Discussions</a> or as an issue. That output is exactly what's needed to fix the parser.</p>
+  </details>
+  <details>
+    <summary>Is this an HPE product?</summary>
+    <p>No. SwitchDesk is an independent project, free to use, with its source on GitHub. Aruba, AOS-CX, ProCurve and Instant On are trademarks of Hewlett Packard Enterprise.</p>
+  </details>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <div class="foot-brand">
+      <a class="brand" href="#top"><img src="img/logo.svg" alt="" width="28" height="28"><span>SwitchDesk</span></a>
+      <p>Built by Jaba Macharashvili.</p>
+      <a class="clihero" href="https://clihero.com"><img src="img/clihero-white.png" alt="clihero.com" width="120" height="36"></a>
+    </div>
+    <div class="foot-cols">
+      <div>
+        <b>Product</b>
+        <a href="#features">Features</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/jaba0x/SwitchDesk/releases">Releases</a>
+        <a href="docs/changelog/">Changelog</a>
+      </div>
+      <div>
+        <b>Help</b>
+        <a href="docs/">Documentation</a>
+        <a href="docs/troubleshooting/">Troubleshooting</a>
+        <a href="https://github.com/jaba0x/SwitchDesk/discussions">Discussions</a>
+        <a href="https://github.com/jaba0x/SwitchDesk/issues">Report a bug</a>
+      </div>
+      <div>
+        <b>Jaba</b>
+        <a href="https://clihero.com">clihero.com</a>
+        <a href="https://github.com/jaba0x">GitHub</a>
+        <a href="https://x.com/jaba0x">X</a>
+        <a href="https://www.linkedin.com/in/jaba0x">LinkedIn</a>
+      </div>
+    </div>
+  </div>
+  <p class="legal">SwitchDesk is not affiliated with or endorsed by Hewlett Packard Enterprise. Aruba is a trademark of HPE.</p>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>

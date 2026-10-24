@@ -15,7 +15,8 @@
 </p>
 
 <p align="center">
-  <a href="https://jaba0x.github.io/SwitchDesk/"><b>Documentation</b></a> ·
+  <a href="https://jaba0x.github.io/SwitchDesk/"><b>Website</b></a> ·
+  <a href="https://jaba0x.github.io/SwitchDesk/docs/"><b>Documentation</b></a> ·
   <a href="https://github.com/jaba0x/SwitchDesk/releases/latest"><b>Download</b></a> ·
   <a href="https://github.com/jaba0x/SwitchDesk/discussions"><b>Discussions</b></a>
 </p>
@@ -151,7 +152,7 @@ SSH host keys are pinned on first connect. If a switch later presents a differen
 
 ## Documentation
 
-The full guide is at **[jaba0x.github.io/SwitchDesk](https://jaba0x.github.io/SwitchDesk/)**: install, first steps, every screen, firmware updates, moving your data, and troubleshooting. It's built with MkDocs from the `docs/` folder and published on every push.
+The full guide is at **[jaba0x.github.io/SwitchDesk/docs](https://jaba0x.github.io/SwitchDesk/docs/)**: install, first steps, every screen, firmware updates, moving your data, and troubleshooting. It's built with MkDocs from the `docs/` folder. The landing page at [jaba0x.github.io/SwitchDesk](https://jaba0x.github.io/SwitchDesk/) is plain HTML in `web/`. Both are published on every push.
 
 ## Development
 

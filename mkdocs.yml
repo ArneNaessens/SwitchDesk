@@ -1,7 +1,7 @@
 site_name: SwitchDesk
 site_description: Desktop app for monitoring and managing Aruba switches over SSH
 site_author: Jaba Macharashvili
-site_url: https://jaba0x.github.io/SwitchDesk/
+site_url: https://jaba0x.github.io/SwitchDesk/docs/
 repo_url: https://github.com/jaba0x/SwitchDesk
 repo_name: jaba0x/SwitchDesk
 edit_uri: edit/main/docs/
@@ -94,3 +94,4 @@ nav:
       - Changelog: changelog.md
   - Development: development.md
   - About: about.md
+  - Website: https://jaba0x.github.io/SwitchDesk/

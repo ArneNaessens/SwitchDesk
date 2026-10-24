@@ -3,7 +3,7 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "web/**", "mkdocs.yml", ".github/workflows/docs.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,15 @@ jobs:
         # MkDocs 2 drops the plugin and theme system Material relies on
         run: pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.7,<10"
       - name: Build
-        run: mkdocs build --strict
+        # landing page at the root, the MkDocs guide under /docs/
+        run: |
+          mkdocs build --strict --site-dir site/docs
+          cp -r web/. site/
+          # the guide used to live at the root; send old links to their new place
+          for page in install getting-started dashboard switches vlans network-map firmware data settings troubleshooting changelog development about; do
+            mkdir -p "site/$page"
+            printf '<!doctype html><meta charset="utf-8"><title>Moved</title><meta http-equiv="refresh" content="0; url=../docs/%s/"><link rel="canonical" href="https://jaba0x.github.io/SwitchDesk/docs/%s/"><a href="../docs/%s/">This page moved</a>\n' "$page" "$page" "$page" > "site/$page/index.html"
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
