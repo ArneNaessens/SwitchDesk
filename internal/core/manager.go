@@ -341,6 +341,7 @@ func (m *Manager) collect(id string) {
 	fam, ver := aruba.Detect(ctx, sess, sw.Family, sess.Banner)
 	aruba.Prepare(ctx, sess, fam)
 	snap := aruba.Collect(ctx, sess, fam, ver)
+	applyPortProbes(&snap, sw.Host)
 
 	m.mu.Lock()
 	prev := m.snaps[id]

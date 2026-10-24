@@ -45,6 +45,7 @@ type upgrader struct {
 	tftp  *firmware.TFTP
 	users int
 	queue chan *Job
+	seen  map[string]time.Time // job id -> last time its switch talked to our TFTP server
 }
 
 // FirmwareInfo is what the UI shows per switch.
@@ -281,6 +282,10 @@ var (
 	pollUp      = 10 * time.Second
 	settleAfter = 45 * time.Second
 	bankSettle  = 3 * time.Minute // how long a switch may take to show an uploaded image in its bank
+
+	tftpNoRequest = 2 * time.Minute // a switch that hasn't asked for the image by now won't
+	tftpStalled   = 2 * time.Minute
+	tftpWatchTick = 5 * time.Second
 )
 
 // tftpAcquire starts the shared TFTP server if needed.
@@ -316,6 +321,7 @@ func (m *Manager) offer(name string) (string, bool) {
 	for _, j := range m.up.jobs {
 		if j.State == "running" && j.Image == name {
 			wanted = true
+			m.markSeenLocked(j.ID)
 		}
 	}
 	m.up.mu.Unlock()
@@ -349,7 +355,55 @@ func (m *Manager) tftpProgress(remote, name string, sent, total int64) {
 			}
 		}
 	}
+	m.up.mu.Lock()
+	m.markSeenLocked(target.ID)
+	m.up.mu.Unlock()
 	m.update(target, func(j *Job) { j.Progress = float64(sent) / float64(total) })
+}
+
+func (m *Manager) markSeenLocked(jobID string) {
+	if m.up.seen == nil {
+		m.up.seen = map[string]time.Time{}
+	}
+	m.up.seen[jobID] = time.Now()
+}
+
+func (m *Manager) lastSeen(jobID string) time.Time {
+	m.up.mu.Lock()
+	defer m.up.mu.Unlock()
+	return m.up.seen[jobID]
+}
+
+// tftpWatch cancels a TFTP copy when the switch never asks for the image, or
+// the transfer stops moving, instead of waiting for the switch's own timeout
+// (30 minutes on AOS-CX). It stops watching once the whole file has been sent,
+// because the switch then spends a few minutes writing it to flash.
+func (m *Manager) tftpWatch(ctx context.Context, j *Job, cancel context.CancelCauseFunc, local string) {
+	start := time.Now()
+	t := time.NewTicker(tftpWatchTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		m.up.mu.Lock()
+		done := j.Progress >= 1
+		m.up.mu.Unlock()
+		if done {
+			return
+		}
+		last := m.lastSeen(j.ID)
+		switch {
+		case last.IsZero() && time.Since(start) > tftpNoRequest:
+			cancel(fmt.Errorf("the switch never asked this computer (%s) for the image over TFTP in %s. Check that it can reach %s on UDP port 69, and that this computer's firewall lets SwitchDesk accept it", local, tftpNoRequest.Round(time.Second), local))
+			return
+		case !last.IsZero() && time.Since(last) > tftpStalled:
+			cancel(fmt.Errorf("the TFTP transfer stopped moving for %s", tftpStalled.Round(time.Second)))
+			return
+		}
+	}
 }
 
 func (m *Manager) runJob(j *Job) {
@@ -695,9 +749,20 @@ func (m *Manager) tftpCopy(ctx context.Context, j *Job, sw store.Switch, s *sshx
 	}
 	vrf := m.vrfFor(sw, f)
 	m.step(j, fmt.Sprintf("Copying %s to the %s bank from %s over TFTP", j.Image, spare, local))
-	out, err := aruba.CopyImage(ctx, s, f, local, j.Image, spare, vrf)
+	m.up.mu.Lock()
+	delete(m.up.seen, j.ID)
+	m.up.mu.Unlock()
+	wctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go m.tftpWatch(wctx, j, cancel, local)
+	out, err := aruba.CopyImage(wctx, s, f, local, j.Image, spare, vrf)
 	if out != "" {
 		m.logf(j, "%s", lastLines(out, 4))
+	}
+	if cause := context.Cause(wctx); err != nil && cause != nil && !errors.Is(cause, context.Canceled) {
+		// stop the copy on the switch so the next command doesn't land in it
+		s.Interrupt()
+		return cause
 	}
 	if err != nil && strings.Contains(strings.ToLower(out), "peer unreachable") {
 		err = fmt.Errorf("%w. The switch couldn't reach %s on UDP 69; this happens over VPN or zero trust access", err, local)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- Firmware updates on AOS-CX no longer hang at "Continue (y/n)?". AOS-CX needs Enter after the answer; SwitchDesk now presses it, and switches that act on the single key (AOS-S) still get only the key.
+- A TFTP copy that the switch never starts, or that stops moving, now fails after two minutes with the reason, instead of waiting until the switch logs the session out.
+- Telnet and plain HTTP are checked by trying TCP ports 23 and 80 directly. A config that couldn't be read, or an Instant On switch, no longer shows a Telnet warning that isn't true. The switch page shows what was seen on each port.
+
 ## 0.5.0
 
 - Firmware updates on AOS-S upload the image over SSH (SFTP or SCP), so they work over a VPN or zero trust access where the switch can't reach your computer. `ip ssh filetransfer` is turned on for the upload and the previous settings are restored afterwards.

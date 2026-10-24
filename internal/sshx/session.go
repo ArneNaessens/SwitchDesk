@@ -326,11 +326,22 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 	}
 	deadline := time.Now().Add(timeout)
 	answered := -1 // line number of the last prompt we answered, so each is answered once
+	var enterDue time.Time
 	for time.Now().Before(deadline) {
 		raw := s.snapshot()
 		clean := Clean(raw)
 		tail := lastLine(clean)
 		line := strings.Count(strings.TrimRight(clean, "\n "), "\n")
+		// AOS-S acts on a single "y"; AOS-CX also wants Enter. If the switch is
+		// still sitting on the prompt line a moment after the "y", press Enter.
+		if !enterDue.IsZero() {
+			if line != answered {
+				enterDue = time.Time{}
+			} else if time.Now().After(enterDue) {
+				s.write("\n")
+				enterDue = time.Time{}
+			}
+		}
 		if moreRe.MatchString(tail) && line != answered {
 			s.write(" ")
 			answered = line
@@ -343,6 +354,7 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 			// confirmation prompts (copy over an image, save before reboot, reboot now)
 			s.write("y")
 			answered = line
+			enterDue = time.Now().Add(confirmEnterAfter)
 		}
 		if err := s.wait(ctx, 300*time.Millisecond); err != nil {
 			return trimEcho(clean, cmd), err
@@ -352,6 +364,10 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 }
 
 var confirmRe = regexp.MustCompile(`(?i)(\(y/n\)|\[y/n\])\??\s*:?\s*$`)
+
+// confirmEnterAfter is how long to wait after answering "y" before pressing
+// Enter for switches that need it.
+var confirmEnterAfter = 1500 * time.Millisecond
 
 func isConfirm(tail string) bool { return confirmRe.MatchString(strings.TrimSpace(tail)) }
 
@@ -369,6 +385,13 @@ func trimEcho(out, cmd string) string {
 		lines = lines[:n-1]
 	}
 	return strings.Trim(strings.Join(lines, "\n"), "\n")
+}
+
+// Interrupt sends Ctrl-C, which stops a running copy on Aruba switches.
+func (s *Session) Interrupt() {
+	s.write("\x03")
+	time.Sleep(500 * time.Millisecond)
+	s.write("\n")
 }
 
 func (s *Session) Close() error {

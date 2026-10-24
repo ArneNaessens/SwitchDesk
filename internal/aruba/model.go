@@ -72,6 +72,10 @@ type Security struct {
 	LogServers      []string `json:"logServers"`
 	AAA             []string `json:"aaa"`
 	ManagerPassword bool     `json:"managerPassword"`
+	// What SwitchDesk saw when it tried the ports itself: "open", "closed",
+	// "filtered" or "" when not checked. These override the config guess.
+	TelnetPort string `json:"telnetPort"`
+	HTTPPort   string `json:"httpPort"`
 }
 
 type VLAN struct {

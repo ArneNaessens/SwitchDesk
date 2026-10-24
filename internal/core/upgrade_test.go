@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/jaba0x/switchdesk/internal/aruba"
 	"github.com/jaba0x/switchdesk/internal/store"
 )
 
@@ -39,6 +40,9 @@ type fakeAOSS struct {
 	// SSH file transfer (ip ssh filetransfer + SFTP into /os/<bank>)
 	push                         bool // the switch supports it
 	ftOn, tftpCliOff, tftpSrvOff bool
+
+	cx       bool // behave like an AOS-CX 6100 instead of AOS-S
+	cxNoTFTP bool // the switch can't reach our TFTP server
 }
 
 func newFakeAOSS(t *testing.T) *fakeAOSS {
@@ -110,7 +114,11 @@ func (f *fakeAOSS) serve(nc net.Conn) {
 				}
 				r.Reply(r.Type == "pty-req" || r.Type == "shell", nil)
 				if r.Type == "shell" {
-					go f.shell(ch, nc)
+					if f.cx {
+						go f.shellCX(ch, nc)
+					} else {
+						go f.shell(ch, nc)
+					}
 				}
 			}
 		}()
@@ -441,5 +449,219 @@ func TestUpgradeOverSSHWithoutTFTP(t *testing.T) {
 	}
 	if fake.ftOn || fake.tftpCliOff || fake.tftpSrvOff {
 		t.Fatalf("settings not restored: filetransfer %v, tftp client off %v, tftp server off %v", fake.ftOn, fake.tftpCliOff, fake.tftpSrvOff)
+	}
+}
+
+// readLine reads keystrokes up to Enter, echoing them, like an AOS-CX prompt.
+func readLine(ch ssh.Channel) (string, bool) {
+	b := make([]byte, 1)
+	var line []byte
+	for {
+		if n, err := ch.Read(b); err != nil || n == 0 {
+			return "", false
+		}
+		if b[0] == '\r' || b[0] == '\n' {
+			return strings.TrimSpace(string(line)), true
+		}
+		if b[0] == 3 { // Ctrl-C
+			return "\x03", true
+		}
+		line = append(line, b[0])
+		ch.Write(b)
+	}
+}
+
+func (f *fakeAOSS) shellCX(ch ssh.Channel, nc net.Conn) {
+	defer ch.Close()
+	prompt := "SW-CX# "
+	io.WriteString(ch, "\r\n"+prompt)
+	copyRe := regexp.MustCompile(`^copy tftp://([^/]+)/(\S+) (primary|secondary) vrf (\S+)$`)
+	for {
+		cmd, ok := readLine(ch)
+		if !ok {
+			return
+		}
+		io.WriteString(ch, "\r\n")
+		f.mu.Lock()
+		run := f.primary
+		if f.running == "secondary" {
+			run = f.secondary
+		}
+		switch {
+		case cmd == "show version":
+			fmt.Fprintf(ch, "-----\r\nArubaOS-CX\r\n(c) Copyright 2017-2026 Hewlett Packard Enterprise\r\n-----\r\nVersion      : %s\r\nActive Image : %s\r\n", run, f.running)
+		case cmd == "show images":
+			fmt.Fprintf(ch, "---\r\nArubaOS-CX Primary Image\r\n---\r\nVersion : %s\r\n\r\n---\r\nArubaOS-CX Secondary Image\r\n---\r\nVersion : %s\r\n\r\nDefault Image : %s\r\n", f.primary, f.secondary, f.def)
+		case cmd == "show system":
+			io.WriteString(ch, "Hostname        : SW-CX\r\nProduct Name    : JL678A 6100 24G CL4 4SFP+ Swch\r\n")
+		case copyRe.MatchString(cmd):
+			m := copyRe.FindStringSubmatch(cmd)
+			noTFTP := f.cxNoTFTP
+			f.mu.Unlock()
+			io.WriteString(ch, "The secondary image will be deleted.\r\nContinue (y/n)? ")
+			ans, ok := readLine(ch) // AOS-CX acts only after Enter
+			if !ok {
+				return
+			}
+			io.WriteString(ch, "\r\n")
+			if ans != "y" {
+				f.mu.Lock()
+				break
+			}
+			if noTFTP {
+				// a real switch keeps trying in silence; only Ctrl-C ends it
+				for {
+					c, ok := readLine(ch)
+					if !ok {
+						return
+					}
+					if c == "\x03" {
+						break
+					}
+				}
+				f.mu.Lock()
+				io.WriteString(ch, "Copy aborted\r\n")
+				break
+			}
+			port := 0
+			for i := 0; i < 200 && port == 0; i++ {
+				f.mu.Lock()
+				port = f.tftpPort
+				f.mu.Unlock()
+				if port == 0 {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			host := strings.Split(m[1], ":")[0]
+			data, err := tftpGet(host, port, m[2])
+			f.mu.Lock()
+			if err != nil {
+				fmt.Fprintf(ch, "Failed to copy: %v\r\n", err)
+			} else {
+				f.gotBytes = len(data)
+				v := regexp.MustCompile(`([A-Z]{2})_(\d+)_(\d+)_(\d+)`).FindStringSubmatch(m[2])
+				ver := fmt.Sprintf("%s.%s.%s.%s", v[1], v[2], v[3], v[4])
+				if m[3] == "secondary" {
+					f.secondary = ver
+				} else {
+					f.primary = ver
+				}
+				io.WriteString(ch, "######################################################################### 100.0%\r\nVerifying and writing system firmware...\r\n")
+			}
+		case strings.HasPrefix(cmd, "boot set-default "):
+			f.def = strings.TrimPrefix(cmd, "boot set-default ")
+			io.WriteString(ch, "Default boot image set to "+f.def+" image.\r\n")
+		case strings.HasPrefix(cmd, "boot system "):
+			f.mu.Unlock()
+			io.WriteString(ch, "Checking if the configuration needs to be saved...\r\n\r\nDo you want to continue (y/n)? ")
+			if ans, ok := readLine(ch); !ok || ans != "y" {
+				f.mu.Lock()
+				break
+			}
+			f.mu.Lock()
+			f.def = strings.TrimPrefix(cmd, "boot system ")
+			f.mu.Unlock()
+			ch.Close()
+			nc.Close()
+			f.reboot()
+			return
+		case cmd == "show running-config":
+			io.WriteString(ch, "hostname SW-CX\r\n")
+		case cmd == "no page", cmd == "write memory", cmd == "terminal-length 1000", cmd == "", cmd == "\x03":
+		default:
+			fmt.Fprintf(ch, "Invalid input: %s\r\n", cmd)
+		}
+		f.mu.Unlock()
+		io.WriteString(ch, prompt)
+	}
+}
+
+func cxSetup(t *testing.T, noTFTP bool) (*Manager, *fakeAOSS, string, []byte) {
+	tftpAddr, pollDown, pollUp, settleAfter = "127.0.0.1:0", 50*time.Millisecond, 100*time.Millisecond, 200*time.Millisecond
+	st, _ := store.Open(t.TempDir())
+	cred, _ := st.SaveCredential(store.Credential{Username: "admin", Password: "x"})
+	fake := newFakeAOSS(t)
+	fake.cx, fake.cxNoTFTP = true, noTFTP
+	fake.primary, fake.secondary = "PL.10.13.1080", "PL.10.08.1010"
+	host, portS, _ := net.SplitHostPort(fake.addr)
+	port, _ := strconv.Atoi(portS)
+	sw, _ := st.SaveSwitch(store.Switch{Host: host, Port: port, CredentialID: cred.ID})
+	m := New(st, nil)
+	m.Start()
+	t.Cleanup(m.Stop)
+	img := filepath.Join(t.TempDir(), "PL_10_16_1060.swi")
+	payload := bytes.Repeat([]byte("cx-image"), 40000)
+	os.WriteFile(img, payload, 0o600)
+	if _, err := m.Library().AddFile(img); err != nil {
+		t.Fatal(err)
+	}
+	m.collect(sw.ID)
+	if fam := m.snaps[sw.ID].Family; fam != aruba.FamilyAOSCX {
+		t.Fatalf("detected %s, want aos-cx", fam)
+	}
+	go func() {
+		for i := 0; i < 6000; i++ {
+			m.up.mu.Lock()
+			if m.up.tftp != nil {
+				fake.mu.Lock()
+				fake.tftpPort = m.up.tftp.Port()
+				fake.mu.Unlock()
+				m.up.mu.Unlock()
+				return
+			}
+			m.up.mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	return m, fake, sw.ID, payload
+}
+
+func waitJob(t *testing.T, m *Manager, within time.Duration) Job {
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if j := m.Jobs()[0]; !j.active() {
+			return j
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("job still running after %s:\n%s", within, strings.Join(m.Jobs()[0].Log, "\n"))
+	return Job{}
+}
+
+// The 6100 from the field: "Continue (y/n)?" needs Enter after the y, or the
+// switch waits until its idle timeout logs the session out.
+func TestUpgradeAOSCXAnswersPromptWithEnter(t *testing.T) {
+	m, fake, id, payload := cxSetup(t, false)
+	if _, err := m.StartUpgrade([]string{id}, "", true, false); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, m, 60*time.Second)
+	if j.State != "done" {
+		t.Fatalf("job ended %s: %s\n%s", j.State, j.Error, strings.Join(j.Log, "\n"))
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.gotBytes != len(payload) || fake.secondary != "PL.10.16.1060" || fake.running != "secondary" {
+		t.Fatalf("fake switch: got %d bytes, secondary %s, running %s", fake.gotBytes, fake.secondary, fake.running)
+	}
+}
+
+// A switch that can't reach our TFTP server must fail quickly with a reason,
+// not hang until the switch logs us out.
+func TestUpgradeTFTPNeverRequestedFailsFast(t *testing.T) {
+	oldNo, oldTick := tftpNoRequest, tftpWatchTick
+	tftpNoRequest, tftpWatchTick = 2*time.Second, 200*time.Millisecond
+	t.Cleanup(func() { tftpNoRequest, tftpWatchTick = oldNo, oldTick })
+	m, _, id, _ := cxSetup(t, true)
+	start := time.Now()
+	if _, err := m.StartUpgrade([]string{id}, "", true, false); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, m, 30*time.Second)
+	if j.State != "failed" || !strings.Contains(j.Error, "never asked this computer") || !strings.Contains(j.Error, "UDP port 69") {
+		t.Fatalf("want a fast TFTP failure, got %s: %s\n%s", j.State, j.Error, strings.Join(j.Log, "\n"))
+	}
+	if d := time.Since(start); d > 20*time.Second {
+		t.Fatalf("took %s to give up", d)
 	}
 }

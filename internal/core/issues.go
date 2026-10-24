@@ -92,10 +92,22 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 	// management plane security
 	sec := snap.Security
 	if sec.TelnetEnabled {
-		add(Critical, "Security", "Telnet is enabled", "Credentials travel in clear text. Disable with: no telnet-server")
+		fix := "Disable with: no telnet-server"
+		if snap.Family == aruba.FamilyAOSCX {
+			fix = "Disable with: no telnet-server vrf <vrf>"
+		}
+		seen := "The switch accepts connections on TCP port 23. "
+		if sec.TelnetPort == "" {
+			seen = ""
+		}
+		add(Critical, "Security", "Telnet is enabled", seen+"Credentials travel in clear text. "+fix)
 	}
 	if snap.Family == aruba.FamilyAOSS && sec.HTTPPlain {
-		add(Warning, "Security", "Plain HTTP web management is enabled", "Use web-management ssl and disable plaintext.")
+		seen := "The switch answers on TCP port 80. "
+		if sec.HTTPPort == "" {
+			seen = ""
+		}
+		add(Warning, "Security", "Plain HTTP web management is enabled", seen+"Use web-management ssl and disable plaintext.")
 	}
 	if sec.SNMPDefault && !set.IgnoreSNMP {
 		add(Critical, "Security", "Default SNMP community in use", "Community \"public\" or \"private\" is configured.")

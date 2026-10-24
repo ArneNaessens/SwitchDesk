@@ -43,7 +43,10 @@ var quotedRe = regexp.MustCompile(`"([^"]*)"`)
 
 // ParseConfigAOSS extracts VLANs and security posture from an AOS-S running-config.
 func ParseConfigAOSS(cfg string) ([]VLAN, Security, bool) {
-	sec := Security{SSHEnabled: true, TelnetEnabled: true, HTTPPlain: true}
+	// AOS-S has Telnet and plain HTTP on unless the config turns them off, but
+	// only a config we actually read can say so.
+	on := strings.TrimSpace(cfg) != ""
+	sec := Security{SSHEnabled: true, TelnetEnabled: on, HTTPPlain: on}
 	stp := false
 	var vlans []VLAN
 	for _, b := range splitConfig(cfg) {

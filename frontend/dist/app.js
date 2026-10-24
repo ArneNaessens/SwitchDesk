@@ -449,8 +449,8 @@ function tabOverview(d, snap) {
     ${firmwareCard(d)}
     <section class="panel"><h2>Management access</h2><div class="body">
       ${checkRow(sec.sshEnabled, "SSH enabled", sec.sshPort ? "port " + sec.sshPort + (sec.sshVersion ? ", version " + sec.sshVersion : "") : "")}
-      ${checkRow(!sec.telnetEnabled, sec.telnetEnabled ? "Telnet is enabled" : "Telnet disabled")}
-      ${isS ? checkRow(!sec.httpPlain, sec.httpPlain ? "Plain HTTP web management enabled" : "Plain HTTP disabled") : ""}
+      ${checkRow(!sec.telnetEnabled, sec.telnetEnabled ? "Telnet is enabled" : "Telnet disabled", portSeen(sec.telnetPort, 23))}
+      ${isS ? checkRow(!sec.httpPlain, sec.httpPlain ? "Plain HTTP web management enabled" : "Plain HTTP disabled", portSeen(sec.httpPort, 80)) : ""}
       ${checkRow(sec.httpsEnabled ? true : null, sec.httpsEnabled ? "HTTPS web management" : "HTTPS not configured")}
       ${checkRow(sec.snmpCommunities?.length ? !sec.snmpDefault : null, sec.snmpCommunities?.length ? (sec.snmpDefault ? "Default SNMP community configured" : "SNMP communities set") : "SNMP not configured", sec.snmpCommunities?.length ? plural(sec.snmpCommunities.length, "community").replace("communitys", "communities") : "")}
       ${isS ? checkRow(sec.managerPassword, sec.managerPassword ? "Manager password set" : "No manager password") : ""}
@@ -467,6 +467,11 @@ function tabOverview(d, snap) {
     ${env.length ? `<section class="panel"><h2>Hardware</h2><div class="body">${env.map((e) => checkRow(e.ok, { fan: "Fan", psu: "Power supply", temp: "Temperature" }[e.kind] + " " + esc(e.name), e.status)).join("")}</div></section>` : ""}
     ${snap.errors?.length ? `<section class="panel"><h2>Collection notes</h2><div class="body faint" style="font-size:13px">${snap.errors.map(esc).join("<br>")}</div></section>` : ""}
   </div>`;
+}
+
+// what SwitchDesk saw when it tried the port itself
+function portSeen(state, port) {
+  return { open: `port ${port} answers`, closed: `port ${port} refused`, filtered: `no answer on port ${port}` }[state] || "";
 }
 
 function tabSTP(snap) {

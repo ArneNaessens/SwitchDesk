@@ -1,6 +1,7 @@
 package sshx
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -94,6 +95,31 @@ func shell(ch ssh.Channel) {
 				io.WriteString(ch, "\x1b[2K\r")
 			}
 			io.WriteString(ch, out)
+		case "copy cx-style":
+			// AOS-CX: prompt answered with "y" plus Enter, nothing happens without the Enter
+			io.WriteString(ch, "The secondary image will be deleted.\r\nContinue (y/n)? ")
+			var got []byte
+			for !bytes.Contains(got, []byte("\n")) && !bytes.Contains(got, []byte("\r")) {
+				if n, err := ch.Read(b); err != nil || n == 0 {
+					return
+				}
+				got = append(got, b[0])
+				if b[0] != '\r' && b[0] != '\n' {
+					ch.Write(b)
+				}
+			}
+			if strings.TrimSpace(string(got)) == "y" {
+				io.WriteString(ch, "\r\nCopy completed.\r\n")
+			} else {
+				io.WriteString(ch, "\r\nAborted\r\n")
+			}
+		case "copy aoss-style":
+			// AOS-S: single keypress, no Enter
+			io.WriteString(ch, "The Secondary OS Image will be deleted, continue [y/n]? ")
+			ch.Read(b)
+			if b[0] == 'y' {
+				io.WriteString(ch, "\r\nValidating and Writing System Software\r\n")
+			}
 		case "exit":
 			return
 		case "":
@@ -130,6 +156,20 @@ func TestSessionAgainstFakeAOSS(t *testing.T) {
 	out, _ = s.Run(ctx, "show system", 5*time.Second)
 	if strings.Count(out, "System Name") != 1 {
 		t.Fatalf("out=%q", out)
+	}
+	confirmEnterAfter = 300 * time.Millisecond
+	out, err = s.Run(ctx, "copy cx-style", 5*time.Second)
+	if err != nil || !strings.Contains(out, "Copy completed") {
+		t.Fatalf("cx-style confirm: out=%q err=%v", out, err)
+	}
+	out, err = s.Run(ctx, "copy aoss-style", 5*time.Second)
+	if err != nil || !strings.Contains(out, "Validating") {
+		t.Fatalf("aos-s-style confirm: out=%q err=%v", out, err)
+	}
+	// the AOS-S answer must not leave a stray Enter behind for the next command
+	out, _ = s.Run(ctx, "show system", 5*time.Second)
+	if strings.Count(out, "System Name") != 1 || strings.Contains(out, "Invalid") {
+		t.Fatalf("after aos-s confirm: %q", out)
 	}
 	out, _ = s.Run(ctx, "bogus", 5*time.Second)
 	if !strings.Contains(out, "Invalid input") {

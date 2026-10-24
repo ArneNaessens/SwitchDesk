@@ -34,9 +34,15 @@ Different firmware versions word their output differently. Open **Raw output**, 
 
 The map comes from LLDP and CDP. Check **Neighbors** on the switch and on what it's plugged into. On AOS-S, turn LLDP on with `lldp run`.
 
+## Telnet or plain HTTP is flagged, but it's turned off
+
+SwitchDesk doesn't go by the config alone: on every reading it tries the switch's TCP port 23 (Telnet) and port 80 (plain HTTP) itself. The switch page shows what it saw under **Management access**, for example *port 23 refused*. A warning only appears when the port really answers.
+
+If you just turned it off, click **Collect now** to read the switch again instead of waiting for the next reading.
+
 ## Firmware update problems
 
-**The copy fails with a timeout.** The switch can't reach this computer on UDP port 69. Check your computer's firewall (allow SwitchDesk), and any ACL or firewall between the switch's management network and you.
+**"The switch never asked this computer for the image over TFTP".** The switch can't reach this computer on UDP port 69. Check your computer's firewall (allow SwitchDesk), and any ACL or firewall between the switch's management network and you. SwitchDesk gives up after two minutes without a request, and stops the copy on the switch.
 
 **"UDP port 69 is taken".** Another TFTP server runs on this computer. Stop it while updating.
 
