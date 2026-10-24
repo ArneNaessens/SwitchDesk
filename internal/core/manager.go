@@ -302,6 +302,9 @@ func (m *Manager) connect(ctx context.Context, sw store.Switch) (*sshx.Session, 
 	if sw.Cloud != nil {
 		return nil, ErrCloudOnly
 	}
+	if sw.Web {
+		return nil, ErrWebOnly
+	}
 	cred, err := m.st.Credential(sw.CredentialID)
 	if err != nil {
 		return nil, err
@@ -333,6 +336,10 @@ func (m *Manager) collect(id string) {
 	defer l.Unlock()
 	if sw.Cloud != nil {
 		m.cloudRead(sw, true)
+		return
+	}
+	if sw.Web {
+		m.webRead(sw)
 		return
 	}
 
@@ -705,6 +712,9 @@ func (m *Manager) ApplyVLAN(id string, ch aruba.VLANChange) (aruba.ApplyResult, 
 func (m *Manager) TestConnection(sw store.Switch) (string, error) {
 	if sw.Cloud != nil {
 		return "", ErrCloudOnly
+	}
+	if sw.Web {
+		return m.testWeb(sw)
 	}
 	if sw.Port == 0 {
 		sw.Port = 22

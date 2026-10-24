@@ -34,6 +34,6 @@ It runs on macOS and Windows and keeps all data on your own computer.
 |---|---|---|
 | AOS-CX | 6000, 6100, 6200, 6300, 6400, 8xxx | Full |
 | AOS-S / ProCurve | 2530, 2540, 2930F/M, 3810, 5400R | Full |
-| Instant On | 1830, 1930, 1960 | Read from the Instant On portal with your Instant On account: status, ports, PoE, loops, alerts and neighbors for the map. VLANs and firmware stay in the Instant On app. See [Instant On switches](instant-on.md). |
+| Instant On | 1830, 1930, 1960 | Read-only, through the switch's web interface (local management) or the Instant On portal (cloud management). See [Instant On switches](instant-on.md). |
 
 All the switches need is SSH, plus LLDP if you want them on the map.

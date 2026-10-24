@@ -194,11 +194,7 @@ func parseInto(s *Snapshot) {
 	s.Env = append(append(ParseEnv("fan", raw["fans"]), ParseEnv("psu", raw["psu"])...), ParseEnv("temp", raw["temp"])...)
 	s.Logs = ParseLogs(raw["logs"], 60)
 	s.RunningConfig = raw["config"]
-	if cs := strings.ToLower(raw["configstatus"]); cs != "" && !IsCLIError(cs) {
-		saved := strings.Contains(cs, "same as the startup")
-		if strings.Contains(cs, "changed") || strings.Contains(cs, "needs to be saved") || strings.Contains(cs, "differ") {
-			saved = false
-		}
+	if saved, ok := ConfigStatusSaved(raw["configstatus"]); ok {
 		s.Facts.ConfigSaved = &saved
 	}
 	if s.Facts.Hostname == "" {
@@ -238,4 +234,24 @@ func ReadOnlyAllowed(cmd string) bool {
 		}
 	}
 	return false
+}
+
+// ConfigStatusSaved reads AOS-S "show config status". ok is false when the
+// wording isn't recognised, so nothing is claimed either way.
+func ConfigStatusSaved(out string) (saved, ok bool) {
+	cs := strings.ToLower(strings.Join(strings.Fields(out), " "))
+	if cs == "" || IsCLIError(out) {
+		return false, false
+	}
+	for _, p := range []string{"not changed", "not been changed", "no changes", "same as the startup", "same as startup", "is the same as", "is same as", "matches the startup", "has been saved"} {
+		if strings.Contains(cs, p) {
+			return true, true
+		}
+	}
+	for _, p := range []string{"needs to be saved", "need to be saved", "has been changed", "have been changed", "has changed", "differs", "is different", "are different", "not saved", "unsaved"} {
+		if strings.Contains(cs, p) {
+			return false, true
+		}
+	}
+	return false, false
 }

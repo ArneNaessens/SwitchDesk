@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<DeviceConfiguration>
+<version>1.0</version>
+<EncryptionSetting type="section">
+<passwEncryptEnable>1</passwEncryptEnable>
+<rsaPublicKey>-----BEGIN RSA PUBLIC KEY-----
+MIIBCgKCAQEAwRtRLEAeTe2L7PJ2ucym4l7jEDRaTosQDfMlqmcaVu8QEbaCDTZP
+kWAj/j+eLDq0cTAGjle7ffk5P2eFUFaVcsNlyWU96XvmwduTcXnYS+p29Mczc+gD
+gUGs420F6evjPJ+QMR2DMCKuTuTyxkh9LMsf/hsGwkvliMa99qLm7XGZ58vLY7bS
+NVLiqgN2+4mNLauWFGeGVvVV2745KVOOZHChCA4pcChnKMTs6hhmnBe0W9PI3eeP
+2D9LtsHfBYFbt9l4kMm+9r+JmXJHFvVeqYID5F0CHhA8+4czHOVCIAZ4R5StP56Y
+H7G01jXsyGHENduvAHLb3KhKnW7rRVXsbwIDAQAB
+-----END RSA PUBLIC KEY-----
+</rsaPublicKey>
+<loginToken>5155a365</loginToken>
+</EncryptionSetting>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>EncryptionSetting</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

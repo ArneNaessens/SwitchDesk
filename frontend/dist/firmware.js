@@ -209,7 +209,7 @@ function openUpgradeDialog(ids) {
 // firmware card on the switch page
 function firmwareCard(d) {
   const f = d.firmware || {}, b = f.banks || {};
-  if (!f.supported) return `<section class="panel"><h2>Firmware</h2><div class="body muted" style="font-size:13px">${d.summary?.family === "Instant On" ? "Instant On firmware is updated from the Instant On portal." : "Firmware details appear once the switch has been read."}</div></section>`;
+  if (!f.supported) return `<section class="panel"><h2>Firmware</h2><div class="body muted" style="font-size:13px">${d.web ? "Instant On firmware is updated from the switch's web page (Maintenance → Firmware)." : d.summary?.family === "Instant On" ? "Instant On firmware is updated from the Instant On app or portal." : "Firmware details appear once the switch has been read."}</div></section>`;
   const row = (bank) => `<dt>${bank[0].toUpperCase() + bank.slice(1)}</dt><dd class="mono">${esc(b[bank] || "–")}${b.running === bank ? ' <span class="tag">running</span>' : ""}${b.default === bank && b.running !== bank ? ' <span class="tag">next boot</span>' : ""}</dd>`;
   const j = f.job;
   return `<section class="panel"><h2>Firmware<span class="grow"></span>${canUpdate(d) ? `<button class="btn small primary" onclick="openUpgradeDialog(['${d.id}'])">${ICON.up}${f.staged ? "Install now" : "Update"}</button>` : ""}</h2><div class="body"><dl class="kv">

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- Instant On switches in local management mode can be added. They have no SSH, so SwitchDesk signs in to the switch's web interface with its admin login, the same encrypted login the web page uses, and signs out after each reading. In **Add switch**, pick **Instant On (local)**; in **Add many**, pick **Instant On (web interface)**.
+- They show model, firmware, ports with PoE and loops, spanning tree, LLDP neighbors for the map, VLANs, fans, power, temperature and logs.
+- New problems for them: a clock that's out (with the SNTP server that never answered), and no loop protection when spanning tree is off too.
+- Instant On switches added over SSH earlier get a **Use web interface** button on their page.
+- AOS-S: "Unsaved changes" no longer shows when the switch says its running configuration hasn't changed since the last save.
+
 ## 0.6.0
 
 - Instant On switches managed from the cloud can be added. They have no SSH, so SwitchDesk reads them from the Instant On portal with your Instant On account. In **Add switch**, pick **Instant On cloud**, sign in, and choose switches from every site the account can see.

@@ -41,6 +41,7 @@ internal/store         inventory, encrypted credentials, snapshots, config copie
 internal/firmware      image library, version matching, TFTP server
 internal/cxrest        firmware upload to AOS-CX over its REST API
 internal/instanton     Instant On portal sign-in and reads
+internal/ionlocal      Instant On web interface sign-in and reads (local management)
 frontend/dist          the interface
 docs/                  this documentation (MkDocs)
 ```

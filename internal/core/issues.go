@@ -77,6 +77,9 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 		return out
 	}
 
+	for _, n := range snap.Notes {
+		add(Severity(n.Severity), n.Category, n.Title, n.Detail)
+	}
 	if c := snap.Cloud; c != nil {
 		for _, a := range c.Alerts {
 			sev := Info

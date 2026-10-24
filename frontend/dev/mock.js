@@ -111,7 +111,28 @@ password manager`;
     stp: { known: true, enabled: true, mode: "RSTP", bridgePriority: "32768", bridgeMac: "94:60:d5:12:34:56", isRoot: false, ports: [] }, security: {}, ports: ioPorts,
     neighbors: [{ protocol: "cloud", localPort: "25", sysName: "agg-cx-a", chassisId: "38:21:c7:00:00:02", capabilities: "Bridge" }, { protocol: "cloud", localPort: "3", sysName: "AP-Reception", chassisId: "94:60:d5:aa:00:01", description: "AP22", capabilities: "WLAN" }],
     cloud: { site: "Office", health: "warning", upToDate: false, firmware: "1.0.7.0", clients: 17, poeUsedW: 41.6, poeBudgetW: 195, alerts: [{ severity: "major", type: "loopDetected", text: "Loop detected (port 14)" }] }, errors: [] };
-  const detail = (id) => ({ ...views.find((v) => v.id === id), snapshot: id === "acc4" ? null : id === "io1" ? ioSnap : snap, backups: [{ name: "20261023-210400.cfg", at: mins(4), size: 2400 }, { name: "20261019-081200.cfg", at: mins(6000), size: 2300 }] });
+  const iow = JSON.parse(JSON.stringify(io));
+  Object.assign(iow, { id: "io2", name: "SW-BRANCH-114", host: "192.168.13.3", port: 443, web: true, cloud: undefined, credentialId: "c1", site: "Digomi" });
+  iow.summary = { ...iow.summary, hostname: "SW-BRANCH-114", model: "JL686A 1930 48p Gigabit CL4 PoE 4p SFP+ 370W", software: "InstantOn_1930_3.3.2.0 (5)" };
+  iow.issues = [
+    { switchId: "io2", switchName: "SW-BRANCH-114", severity: "critical", category: "Spanning tree", title: "Spanning tree is disabled", detail: "A single looped cable can take this segment down." },
+    { switchId: "io2", switchName: "SW-BRANCH-114", severity: "warning", category: "Management", title: "Clock is off by 268 days", detail: "The switch's clock reads Jan 27 2026 23:21 (UTC). Log times and certificate checks depend on it. The SNTP server 172.30.0.1 has never answered." },
+    { switchId: "io2", switchName: "SW-BRANCH-114", severity: "warning", category: "Spanning tree", title: "No loop protection", detail: "Spanning tree and loop protection are both off, so nothing stops a looped cable from flooding this segment." }];
+  iow.worst = "critical";
+  views.push(iow);
+  const leg = JSON.parse(JSON.stringify(iow));
+  Object.assign(leg, { id: "io3", name: "SW-OLD-1930", host: "10.10.2.9", port: 22, web: false, family: "instant-on", summary: null, issues: [{ switchId: "io3", switchName: "SW-OLD-1930", severity: "warning", category: "SSH", title: "Data collection failed", detail: "ssh: connect to host 10.10.2.9 port 22: connection refused" }] });
+  views.push(leg);
+  const webPorts = Array.from({ length: 52 }, (_, i) => ({ name: String(i + 1), enabled: true, up: [1, 9, 47, 6].includes(i), speed: [1, 9, 47, 6].includes(i) ? "1G" : "", type: i >= 48 ? "SFP+" : "100/1000T", poeMw: i === 1 || i === 9 ? 3200 : 0, loop: false, vlan: "1" }));
+  const webSnap = { family: "instant-on", web: true, collectedAt: mins(2), duration: "3.1s",
+    facts: { hostname: "SW-BRANCH-114", model: "JL686A 1930 48p Gigabit CL4 PoE 4p SFP+ 370W", serial: "CN0BKPJ14V", baseMac: "8c:85:c1:0f:50:0e", software: "InstantOn_1930_3.3.2.0 (5)", uptime: "71 days, 11h 46m", cpu: -1, memory: -1, location: "Tbilisi Energy", contact: "Network team", configSaved: false },
+    stp: { known: true, enabled: false, mode: "MSTP", bridgePriority: "32768", bridgeMac: "8c:85:c1:0f:50:0e", topologyChanges: 0, ports: [] },
+    security: { telnetEnabled: false, telnetPort: "closed", httpsEnabled: true, ntpServers: ["172.30.0.1"], logServers: ["10.0.0.195"], snmpCommunities: [] },
+    ports: webPorts, vlans: [{ id: 1, name: "DEFAULT_VLAN", status: "Up", untagged: webPorts.map((p) => p.name), tagged: [] }],
+    neighbors: [{ protocol: "lldp", localPort: "2", sysName: "GXP1625_c0:74:ad:24:1f:36", portId: "c0:74:ad:24:1f:36", portDescr: "eth0", mgmtIp: "192.168.13.121", capabilities: "bridge, telephone", description: "GXP1625 1.0.11.138" }, { protocol: "lldp", localPort: "48", sysName: "SW-DIGOMI-FL2", chassisId: "ec:50:aa:71:87:40", portId: "1/1/3", mgmtIp: "192.168.13.2", capabilities: "bridge, router", description: "Aruba R8N87A PL.10.13.1080" }],
+    env: [{ kind: "fan", name: "Fan 1", status: "OK", ok: true }, { kind: "fan", name: "Fan 2", status: "OK", ok: true }, { kind: "psu", name: "Main", status: "OK", ok: true }, { kind: "temp", name: "Sensor", status: "61°C, OK", ok: true }],
+    logs: [{ severity: "I", text: "01/28/26 03:05:45 %AAA-I-CONNECT: New http connection for user admin" }, { severity: "W", text: "01/28/26 03:01:53 %LINK-W-Down:  11" }], errors: [] };
+  const detail = (id) => ({ ...views.find((v) => v.id === id), snapshot: id === "acc4" || id === "io3" ? null : id === "io1" ? ioSnap : id === "io2" ? webSnap : snap, backups: [{ name: "20261023-210400.cfg", at: mins(4), size: 2400 }, { name: "20261019-081200.cfg", at: mins(6000), size: 2300 }] });
   window.go = { main: { App: {
     Platform: async () => "darwin", Version: async () => "0.3.0",
     GetDashboard: async () => dash, GetSwitch: async (id) => detail(id), GetTopology: async () => topo, SaveLayout: async () => {},
@@ -121,6 +142,7 @@ password manager`;
       { id: "s1", name: "Office", switches: [{ deviceId: "94:60:d5:12:34:56", name: "office-1930", model: "JL682A", ip: "10.10.2.5", online: true, ports: 28, addedAs: "io1" }, { deviceId: "94:60:d5:12:34:57", name: "office-1930-b", model: "JL682A", ip: "10.10.2.6", online: true, ports: 28 }] },
       { id: "s2", name: "Warehouse Rustavi", switches: [{ deviceId: "94:60:d5:22:00:01", name: "wh-1960-core", model: "JL808A", ip: "192.168.50.2", online: true, ports: 28 }, { deviceId: "94:60:d5:22:00:02", name: "wh-1830-dock", model: "JL812A", ip: "192.168.50.3", online: false, ports: 10 }] }]; },
     AddCloud: async (cid, picks) => picks.length,
+    UseWebInterface: async () => 1, TestSwitch: async () => "Signed in to SW-BRANCH-114 (HPE Networking Instant On Switch 48p Gigabit CL4 PoE 4p SFP+ 370W 1930 JL686A)",
     VLANOverview: async () => views.filter((v) => v.summary?.ports?.length).map((v, i) => ({ id: v.id, name: v.name, online: true, vlans: vlans.filter((x, j) => (i + j) % 4 !== 3).map((x) => (v.id === "io1" && x.id === 30 ? { ...x, name: "VOIP" } : x)) })),
     GetBackup: async () => cfg.replace("aaa authentication ssh login radius local\n", ""),
     PreviewVLAN: async (id, ch) => ["configure terminal", `vlan ${ch.id}`, ch.name ? `name "${ch.name}"` : null, ch.addUntagged?.length ? "untagged " + ch.addUntagged.join(",") : null, ch.addTagged?.length ? "tagged " + ch.addTagged.join(",") : null, "exit", "end", ch.save ? "write memory" : null].filter(Boolean),

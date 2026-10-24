@@ -64,6 +64,13 @@ Ask in [Discussions](https://github.com/jaba0x/SwitchDesk/discussions) or [open 
 
 ## Instant On switches
 
+**"the switch didn't accept that username and password" (local management).** Use the login you use on the switch's own web page.
+
+**"too many web sessions open".** The switch allows a few web sessions at a time. Close its web page in other browsers, or wait ten minutes for old sessions to time out. SwitchDesk signs out after every reading.
+
+**Test connection says port 443 didn't answer.** HTTPS is turned off on the switch. Set the port to 80, or turn HTTPS back on in the switch's web page.
+
+
 **"Instant On login failed".** The portal didn't accept the email and password. Check them by signing in at portal.instant-on.hpe.com. If the account uses two-step verification, SwitchDesk can't sign in with it: use a separate account without it, with view-only access to your sites, and update it under **Settings → Credentials**.
 
 **"Couldn't read the Instant On portal".** The portal didn't answer, or answered in a way SwitchDesk didn't expect. The message gives the reason. The portal's API isn't documented and can change; if this persists, open an issue with the message.

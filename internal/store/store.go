@@ -35,6 +35,9 @@ type Switch struct {
 	// Cloud is set for Instant On switches read from the portal instead of SSH.
 	// CredentialID then points to an Instant On account.
 	Cloud *CloudRef `json:"cloud,omitempty"`
+	// Web is set for Instant On switches in local management mode, read
+	// through their web interface (port 443 for HTTPS, 80 for HTTP).
+	Web bool `json:"web,omitempty"`
 }
 
 type CloudRef struct {
@@ -245,6 +248,12 @@ func (s *Store) SaveSwitch(sw Switch) (Switch, error) {
 	} else {
 		if sw.Host == "" {
 			return sw, errors.New("host is required")
+		}
+		if sw.Web {
+			sw.Family, sw.HostKey = aruba.FamilyInstantOn, ""
+			if sw.Port == 0 || sw.Port == 22 {
+				sw.Port = 443
+			}
 		}
 		if sw.Port == 0 {
 			sw.Port = 22

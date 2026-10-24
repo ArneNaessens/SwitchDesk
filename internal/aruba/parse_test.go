@@ -478,3 +478,25 @@ Default Image : secondary
 		t.Fatalf("cx banks: %+v", c)
 	}
 }
+
+func TestConfigStatusSaved(t *testing.T) {
+	cases := []struct {
+		out       string
+		saved, ok bool
+	}{
+		{"Running configuration is the same as the startup configuration.", true, true},
+		{"Running configuration is same as the startup configuration.", true, true},
+		{"Running configuration has not changed since last save.", true, true},
+		{"The running configuration has not been changed since the last save.", true, true},
+		{"Running configuration has been changed and needs to be saved.", false, true},
+		{"Running configuration differs from the startup configuration.", false, true},
+		{"Invalid input: config", false, false},
+		{"something else entirely", false, false},
+		{"", false, false},
+	}
+	for _, c := range cases {
+		if saved, ok := ConfigStatusSaved(c.out); saved != c.saved || ok != c.ok {
+			t.Errorf("%q: got saved=%v ok=%v", c.out, saved, ok)
+		}
+	}
+}

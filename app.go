@@ -137,7 +137,12 @@ func (a *App) BulkAdd(text, credentialID, site string, family string) BulkResult
 			name = ""
 		}
 		for _, h := range hosts {
-			_, err := a.st.SaveSwitch(store.Switch{Name: name, Host: h, Port: 22, CredentialID: credentialID, Site: site, Family: aruba.Family(family)})
+			sw := store.Switch{Name: name, Host: h, Port: 22, CredentialID: credentialID, Site: site, Family: aruba.Family(family)}
+			if sw.Family == aruba.FamilyInstantOn {
+				// Instant On switches have no SSH CLI: read them through their web interface
+				sw.Web, sw.Port = true, 443
+			}
+			_, err := a.st.SaveSwitch(sw)
 			if err != nil {
 				res.Errors = append(res.Errors, h+": "+err.Error())
 				continue
@@ -208,6 +213,30 @@ func (a *App) SetDisabled(ids []string, disabled bool) error {
 }
 
 func (a *App) TestSwitch(sw store.Switch) (string, error) { return a.mgr.TestConnection(sw) }
+
+// UseWebInterface moves Instant On switches added for SSH over to their web
+// interface, and reads them again. ids empty means every such switch.
+func (a *App) UseWebInterface(ids []string) (int, error) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	n := 0
+	for _, sw := range a.st.Switches() {
+		if sw.Web || sw.Cloud != nil || sw.Family != aruba.FamilyInstantOn || (len(ids) > 0 && !want[sw.ID]) {
+			continue
+		}
+		sw.Web, sw.Port = true, 443
+		if _, err := a.st.SaveSwitch(sw); err != nil {
+			return n, err
+		}
+		a.mgr.ClearAuthFailure(sw.ID)
+		go a.mgr.Enqueue(sw.ID)
+		n++
+	}
+	a.emit("")
+	return n, nil
+}
 
 // DiscoverCloud lists the switches on an Instant On account's sites.
 func (a *App) DiscoverCloud(credentialID string) ([]core.CloudSite, error) {

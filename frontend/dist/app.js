@@ -361,13 +361,15 @@ function detailStatus(v) {
 const TABS = [["overview", "Overview"], ["stp", "Spanning tree"], ["ports", "Ports"], ["vlans", "VLANs"], ["neighbors", "Neighbors"], ["config", "Config"], ["logs", "Logs"], ["console", "Console"], ["raw", "Raw output"]];
 // Instant On cloud switches: only what the portal provides
 const CLOUD_TABS = ["overview", "ports", "neighbors"];
-const tabsFor = (d) => (d.cloud ? TABS.filter(([k]) => CLOUD_TABS.includes(k)) : TABS);
+// Instant On in local management: everything the web interface reports
+const WEB_TABS = ["overview", "stp", "ports", "vlans", "neighbors", "logs"];
+const tabsFor = (d) => (d.cloud ? TABS.filter(([k]) => CLOUD_TABS.includes(k)) : d.web ? TABS.filter(([k]) => WEB_TABS.includes(k)) : TABS);
 
 function renderDetail(soft) {
   const d = S.detail, snap = d.snapshot, s = d.summary;
   const name = d.name || s?.hostname || d.host;
   const counts = { vlans: snap?.vlans?.length, neighbors: snap?.neighbors?.length, ports: snap?.ports?.length };
-  if (d.cloud && !CLOUD_TABS.includes(S.tab)) S.tab = "overview";
+  if ((d.cloud && !CLOUD_TABS.includes(S.tab)) || (d.web && !WEB_TABS.includes(S.tab))) S.tab = "overview";
   const body = snap ? tabBody(S.tab, d, snap) : noDataYet(d);
   if (soft && $("#tabbody")) {
     $("#tabbody").innerHTML = body;
@@ -377,6 +379,10 @@ function renderDetail(soft) {
   const banners = [];
   if (d.disabled) banners.push(`<div class="banner" style="background:rgba(139,149,167,.08);border-color:var(--line)"><div class="grow"><b>This switch is disabled.</b> SwitchDesk doesn't check or read it and raises no problems for it. The data below is from its last reading.</div><button class="btn" onclick="setDisabled(['${d.id}'], false)">${ICON.play}Enable</button></div>`);
   if (d.status.hostKeyChanged) banners.push(`<div class="banner"><div class="grow"><b>The SSH host key changed.</b> SwitchDesk stopped connecting to protect your credentials. If this switch was replaced or reset, trust the new key.</div><button class="btn" onclick="trustKey()">Trust new key</button></div>`);
+  if (!d.web && !d.cloud && d.family === "instant-on") {
+    const others = (S.dash?.switches || []).filter((v) => !v.web && !v.cloud && v.family === "instant-on").length;
+    banners.push(`<div class="banner"><div class="grow"><b>Instant On switches have no SSH.</b> Read this one through its web interface instead, with the same login.</div><button class="btn" onclick="useWeb(['${d.id}'])">Use web interface</button>${others > 1 ? `<button class="btn" onclick="useWeb([])">All ${others} Instant On switches</button>` : ""}</div>`);
+  }
   if (d.status.authFailed && d.cloud) banners.push(`<div class="banner"><div class="grow"><b>Instant On sign-in failed.</b> ${esc(d.status.collectError)}</div><button class="btn" data-go="#/settings">Open settings</button></div>`);
   else if (d.status.authFailed) banners.push(`<div class="banner"><div class="grow"><b>Login failed.</b> ${esc(d.status.collectError)}. Fix the credentials, then collect again.</div><button class="btn" onclick="openSwitchModal(S.detail)">Edit switch</button></div>`);
   $("#main").innerHTML = `<div class="page">
@@ -384,7 +390,7 @@ function renderDetail(soft) {
       ${d.disabled ? "" : `<button class="btn" onclick="collectOne(this)">${ICON.refresh}Collect now</button>`}
       <button class="btn" onclick="setDisabled(['${d.id}'], ${!d.disabled})">${d.disabled ? ICON.play + "Enable" : ICON.pause + "Disable"}</button>
       <button class="btn" onclick="openSwitchModal(S.detail)">Edit</button></div>
-    <div class="idline">${d.cloud ? `<span><b>Instant On cloud</b></span>${d.host ? `<span class="mono">${esc(d.host)}</span>` : ""}` : `<span class="mono"><b>${esc(d.host)}</b>${d.port !== 22 ? ":" + d.port : ""}</span>`}
+    <div class="idline">${d.cloud ? `<span><b>Instant On cloud</b></span>${d.host ? `<span class="mono">${esc(d.host)}</span>` : ""}` : d.web ? `<span class="mono"><b>${esc(d.host)}</b></span><span>Web interface${d.port === 443 ? " (HTTPS)" : d.port === 80 ? " (HTTP)" : ":" + d.port}</span>` : `<span class="mono"><b>${esc(d.host)}</b>${d.port !== 22 ? ":" + d.port : ""}</span>`}
       ${s ? `${d.cloud ? "" : `<span>${esc(s.family)}</span>`}<span><b>${esc(s.model || "Unknown model")}</b></span><span class="mono">${esc(s.software)}</span><span>Up ${esc(s.uptime || "?")}</span>` : ""}
       ${d.site ? `<span>Site <b>${esc(d.site)}</b></span>` : ""}
       ${s ? `<span class="faint">Collected ${ago(s.collectedAt)}${snap?.duration ? ` in ${snap.duration}` : ""}</span>` : ""}</div>
@@ -408,9 +414,17 @@ function cloudCard(snap) {
   </dl><p class="faint" style="font-size:12.5px;margin:10px 0 0">Read from the Instant On portal. Configuration changes are made in the Instant On app or portal.</p></div></section>`;
 }
 
+async function useWeb(ids) {
+  try {
+    const n = await call("UseWebInterface", ids);
+    toast(`${plural(n, "switch").replace("switchs", "switches")} now read through the web interface. Reading now.`);
+    if (S.detail) loadDetail(S.detail.id);
+  } catch (e) { toast(e.message, true); }
+}
+
 function noDataYet(d) {
   return `<div class="panel"><div class="empty"><h3>No data collected yet</h3>
-    <p>${d.status.collectError ? esc(d.status.collectError) : d.status.online ? "Collection starts automatically. Use Collect now to start it immediately." : d.cloud ? "Waiting for the Instant On portal." : "The switch isn't answering on SSH right now."}</p>
+    <p>${d.status.collectError ? esc(d.status.collectError) : d.status.online ? "Collection starts automatically. Use Collect now to start it immediately." : d.cloud ? "Waiting for the Instant On portal." : d.web ? "The switch isn't answering on its web port right now." : "The switch isn't answering on SSH right now."}</p>
     <button class="btn" onclick="collectOne()">${ICON.refresh}Collect now</button></div></div>`;
 }
 
@@ -462,13 +476,13 @@ function tabOverview(d, snap) {
     <section class="panel"><h2>System</h2><div class="body"><dl class="kv">
       <dt>Hostname</dt><dd>${esc(f.hostname)}</dd><dt>Model</dt><dd>${esc(f.model)}</dd><dt>Serial</dt><dd class="mono">${esc(f.serial)}</dd>
       <dt>Base MAC</dt><dd class="mono">${esc(f.baseMac)}</dd><dt>Software</dt><dd class="mono">${esc(f.software)}</dd><dt>Uptime</dt><dd>${esc(f.uptime)}</dd>
-      ${snap.cloud ? "" : `<dt>CPU</dt><dd>${meter(f.cpu, set.cpuWarn)}</dd><dt>Memory</dt><dd>${meter(f.memory, set.memWarn)}</dd>`}
+      ${f.cpu < 0 && f.memory < 0 ? "" : `<dt>CPU</dt><dd>${meter(f.cpu, set.cpuWarn)}</dd><dt>Memory</dt><dd>${meter(f.memory, set.memWarn)}</dd>`}
       ${f.location ? `<dt>Location</dt><dd>${esc(f.location)}</dd>` : ""}${f.contact ? `<dt>Contact</dt><dd>${esc(f.contact)}</dd>` : ""}
       ${f.configSaved !== undefined && f.configSaved !== null ? `<dt>Startup config</dt><dd>${f.configSaved ? `<span class="ok">Saved</span>` : `<span class="warnc">Unsaved changes</span>`}</dd>` : ""}
     </dl></div></section>
     ${firmwareCard(d)}
     ${snap.cloud ? cloudCard(snap) : `<section class="panel"><h2>Management access</h2><div class="body">
-      ${checkRow(sec.sshEnabled, "SSH enabled", sec.sshPort ? "port " + sec.sshPort + (sec.sshVersion ? ", version " + sec.sshVersion : "") : "")}
+      ${snap.web ? checkRow(d.port === 443 ? true : null, d.port === 443 ? "Read over HTTPS" : "Read over plain HTTP", d.port === 443 ? "" : "set the port to 443 to use HTTPS") : checkRow(sec.sshEnabled, "SSH enabled", sec.sshPort ? "port " + sec.sshPort + (sec.sshVersion ? ", version " + sec.sshVersion : "") : "")}
       ${checkRow(!sec.telnetEnabled, sec.telnetEnabled ? "Telnet is enabled" : "Telnet disabled", portSeen(sec.telnetPort, 23))}
       ${isS ? checkRow(!sec.httpPlain, sec.httpPlain ? "Plain HTTP web management enabled" : "Plain HTTP disabled", portSeen(sec.httpPort, 80)) : ""}
       ${checkRow(sec.httpsEnabled ? true : null, sec.httpsEnabled ? "HTTPS web management" : "HTTPS not configured")}
@@ -476,7 +490,7 @@ function tabOverview(d, snap) {
       ${isS ? checkRow(sec.managerPassword, sec.managerPassword ? "Manager password set" : "No manager password") : ""}
       ${checkRow(sec.ntpServers?.length > 0, sec.ntpServers?.length ? "Time sync" : "No NTP/SNTP server", (sec.ntpServers || []).join(", "))}
       ${checkRow(sec.logServers?.length ? true : null, sec.logServers?.length ? "Remote syslog" : "No syslog server", (sec.logServers || []).join(", "))}
-      ${checkRow(sec.aaa?.length ? true : null, sec.aaa?.length ? "RADIUS/TACACS+ configured" : "Local accounts only")}
+      ${snap.web ? "" : checkRow(sec.aaa?.length ? true : null, sec.aaa?.length ? "RADIUS/TACACS+ configured" : "Local accounts only")}
     </div></section>`}
     <section class="panel"><h2>Spanning tree<span class="grow"></span>${snap.cloud ? "" : `<a data-go="#/switch/${d.id}/stp" style="font-weight:400;font-size:13px">Details</a>`}</h2><div class="body"><dl class="kv">
       <dt>Status</dt><dd>${!st.known ? `<span class="faint">unknown</span>` : st.enabled ? `<span class="ok">Enabled</span>` : `<span class="bad">Disabled</span>`}</dd>
@@ -551,7 +565,7 @@ function compress(ports) {
 function tabVLANs(d, snap) {
   const v = snap.vlans || [];
   const canEdit = snap.family !== "instant-on";
-  return `<section class="panel"><h2>VLANs<span class="grow"></span>${canEdit ? `<button class="btn small primary" onclick="openVLANEditor()">${ICON.plus}New VLAN</button>` : `<span class="faint" style="font-weight:400;font-size:13px">Instant On VLANs are changed in the Instant On portal</span>`}</h2>
+  return `<section class="panel"><h2>VLANs<span class="grow"></span>${canEdit ? `<button class="btn small primary" onclick="openVLANEditor()">${ICON.plus}New VLAN</button>` : `<span class="faint" style="font-weight:400;font-size:13px">Instant On VLANs are changed ${d.web ? "on the switch's web page" : "in the Instant On app or portal"}</span>`}</h2>
     ${v.length ? `<table><thead><tr><th class="num">ID</th><th>Name</th><th>IP address</th><th>Untagged</th><th>Tagged</th><th></th></tr></thead><tbody>
     ${v.map((x) => `<tr><td class="num mono">${x.id}</td><td>${esc(x.name)}</td><td class="mono">${esc(x.ip)}</td><td class="mono">${esc(compress(x.untagged))}</td><td class="mono">${esc(compress(x.tagged))}</td>
       <td style="white-space:nowrap;text-align:right">${canEdit ? `<button class="btn small" onclick="openVLANEditor(${x.id})">Edit</button> ${x.id !== 1 ? `<button class="btn small danger" onclick="deleteVLAN(${x.id})">Delete</button>` : ""}` : ""}</td></tr>`).join("")}
@@ -804,19 +818,25 @@ function credOptions(sel, kind = "") {
 }
 const sshCreds = () => S.creds.filter((c) => !c.kind);
 const cloudCreds = () => S.creds.filter((c) => c.kind === "instanton");
-const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"], ["instant-on", "Instant On"]];
+const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"]];
+const BULK_FAMILIES = [...FAMILIES, ["instant-on", "Instant On (web interface, port 443)"]];
 
-async function openSwitchModal(sw) {
+const addChips = (on) => `<div class="chips" style="margin-bottom:14px">${[["ssh", "Over SSH", "openSwitchModal()"], ["web", "Instant On (local)", "openSwitchModal(null, 'web')"], ["cloud", "Instant On cloud", "openCloudModal()"]].map(([k, l, f]) => `<button class="chip${k === on ? " on" : ""}" ${k === on ? "" : `onclick="${f}"`}>${l}</button>`).join("")}</div>`;
+
+async function openSwitchModal(sw, mode) {
   if (sw?.cloud) return openCloudEdit(sw);
+  const web = mode === "web" || !!sw?.web;
   S.creds = await call("Credentials");
-  const e = sw || { port: 22, family: "auto", credentialId: sshCreds()[0]?.id };
+  const e = sw || { port: web ? 443 : 22, family: web ? "instant-on" : "auto", credentialId: sshCreds()[0]?.id };
   const m = modal(`<h2>${sw ? "Edit switch" : "Add switch"}</h2><div class="body">
-    ${sw ? "" : `<div class="chips" style="margin-bottom:14px"><button class="chip on">Over SSH</button><button class="chip" onclick="openCloudModal()">Instant On cloud</button></div>`}
+    ${sw ? "" : addChips(web ? "web" : "ssh")}
+    ${web ? `<p class="muted" style="font-size:13px;margin-top:0">For Instant On switches in local management mode. SwitchDesk signs in to the switch's own web page with its admin login and reads it from there.</p>` : ""}
     <div class="row"><label class="f"><span>Address</span><input type="text" id="sh" class="mono" placeholder="10.0.0.11" value="${esc(e.host || "")}"></label>
-      <label class="f" style="flex:0 0 90px"><span>SSH port</span><input type="number" id="sp" value="${e.port || 22}"></label></div>
+      <label class="f" style="flex:0 0 90px"><span>${web ? "Port" : "SSH port"}</span><input type="number" id="sp" value="${e.port || (web ? 443 : 22)}"></label></div>
+    ${web ? `<p class="faint" style="font-size:12.5px;margin:-4px 0 12px">443 for HTTPS, or 80 if the switch only answers on HTTP. Test connection tries the other one too.</p>` : ""}
     <label class="f"><span>Name <span class="faint">(optional, the hostname is used otherwise)</span></span><input type="text" id="sn" value="${esc(e.name || "")}"></label>
     <div class="row"><label class="f"><span>Credentials</span><select id="sc">${credOptions(e.credentialId)}</select></label>
-      <label class="f"><span>Switch type</span><select id="sf">${FAMILIES.map(([k, l]) => `<option value="${k}" ${k === (e.family || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <label class="f" ${web ? 'style="display:none"' : ""}><span>Switch type</span><select id="sf">${FAMILIES.map(([k, l]) => `<option value="${k}" ${k === (e.family || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div id="newcred" style="display:none" class="row"><label class="f"><span>Username</span><input type="text" id="cu" value="admin"></label><label class="f"><span>Password</span><input type="password" id="cp"></label></div>
     <label class="f"><span>Site</span><input type="text" id="ss" value="${esc(e.site || "")}"></label>
     <label class="f"><span>Notes</span><input type="text" id="so" value="${esc(e.notes || "")}"></label>
@@ -838,7 +858,7 @@ async function openSwitchModal(sw) {
       toggle();
       cid = c.id;
     }
-    return { ...(sw || {}), host: $("#sh", m).value.trim(), port: +$("#sp", m).value || 22, name: $("#sn", m).value.trim(), credentialId: cid, family: $("#sf", m).value, site: $("#ss", m).value.trim(), notes: $("#so", m).value.trim() };
+    return { ...(sw || {}), host: $("#sh", m).value.trim(), port: +$("#sp", m).value || (web ? 443 : 22), name: $("#sn", m).value.trim(), credentialId: cid, family: web ? "instant-on" : $("#sf", m).value, web, site: $("#ss", m).value.trim(), notes: $("#so", m).value.trim() };
   };
   $("#stest", m).onclick = async () => {
     const b = $("#stest", m);
@@ -871,7 +891,7 @@ async function openCloudModal() {
   S.creds = await call("Credentials");
   const first = cloudCreds()[0]?.id;
   const m = modal(`<h2>Add switch</h2><div class="body">
-    <div class="chips" style="margin-bottom:14px"><button class="chip" onclick="openSwitchModal()">Over SSH</button><button class="chip on">Instant On cloud</button></div>
+    ${addChips("cloud")}
     <p class="muted" style="font-size:13px;margin-top:0">For Instant On switches managed in the Instant On app or portal. SwitchDesk signs in to the portal with your Instant On account and reads the switches from there.</p>
     <label class="f"><span>Instant On account</span><select id="ic">${credOptions(first, "instanton")}</select></label>
     <div id="inew" class="row" style="display:none"><label class="f"><span>Email</span><input type="text" id="iu" autocomplete="off"></label><label class="f"><span>Password</span><input type="password" id="ip"></label></div>
@@ -971,7 +991,7 @@ async function openBulkModal() {
     <label class="f"><span>One switch per line: an address, "name, address", or a range like 10.0.0.10-10.0.0.40</span>
     <textarea id="bt" rows="9" placeholder="10.0.0.11\ncore-cx, 10.0.0.1\n10.0.1.20-10.0.1.29"></textarea></label>
     <div class="row"><label class="f"><span>Credentials</span><select id="bc">${credOptions(sshCreds()[0]?.id)}</select></label>
-      <label class="f"><span>Switch type</span><select id="bf">${FAMILIES.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label></div>
+      <label class="f"><span>Switch type</span><select id="bf">${BULK_FAMILIES.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label></div>
     <div id="bnew" class="row" style="display:none"><label class="f"><span>Username</span><input type="text" id="bu" value="admin"></label><label class="f"><span>Password</span><input type="password" id="bp"></label></div>
     <label class="f"><span>Site</span><input type="text" id="bs"></label><div id="bmsg"></div></div>
     <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="bgo">Add switches</button></div>`);

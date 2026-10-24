@@ -144,6 +144,17 @@ type Snapshot struct {
 	Errors        []string          `json:"errors"`
 	Banks         Banks             `json:"banks"`
 	Cloud         *CloudInfo        `json:"cloud,omitempty"` // Instant On switches read from the portal
+	// Notes are problems a driver found that the generic rules can't see,
+	// such as a wrong clock reported by the switch's web interface.
+	Notes []Note `json:"notes,omitempty"`
+	Web   bool   `json:"web,omitempty"` // read through the switch's web interface
+}
+
+type Note struct {
+	Severity string `json:"severity"` // critical, warning, info
+	Category string `json:"category"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
 }
 
 // CloudInfo is what the Instant On portal adds for a switch it manages.
