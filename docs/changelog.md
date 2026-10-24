@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.2
+
+- Delete and Remove buttons work in the Mac app. They asked for confirmation with a browser dialog that the app's window doesn't show, so the answer was always "cancel". Confirmation now uses SwitchDesk's own dialog, for switches, firmware images, credentials and replacing data on import.
+
 ## 0.8.1
 
 - **Instant On (web interface)** is back in the switch type list, in both Add switch and Edit switch. Picking it switches the dialog to the web interface: port 443 and the switch's web login. Editing an Instant On switch that was added for SSH opens it this way too, so saving moves it to the web interface.

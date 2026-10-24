@@ -173,7 +173,7 @@ function drawDl() {
 
 
 async function deleteFirmware(file) {
-  if (!confirm(`Delete ${file} from the library?`)) return;
+  if (!(await askConfirm(`Delete ${file} from the library?`))) return;
   try { await call("DeleteFirmware", file); } catch (e) { toast(e.message, true); }
   S.dash = await call("GetDashboard");
   renderFirmware(true);

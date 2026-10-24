@@ -245,6 +245,7 @@ dl.kv dd { margin: 0; user-select: text; word-break: break-word; }
 .mapcard h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 
 /* ---------- modal & toast ---------- */
+.cveil { position: fixed; inset: 0; background: rgba(8,10,14,.55); display: grid; place-items: center; z-index: 40; }
 .veil { position: fixed; inset: 0; background: rgba(8,10,14,.6); display: grid; place-items: center; z-index: 20; }
 .modal { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 60px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 .modal.wide { width: min(860px, calc(100vw - 40px)); }

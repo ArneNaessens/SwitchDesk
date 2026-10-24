@@ -317,7 +317,7 @@ async function setDisabled(ids, disabled) {
 async function deleteSwitches(ids) {
   if (!ids.length) return;
   const what = ids.length === 1 ? nameOf(ids[0]) : switchesWord(ids.length);
-  if (!confirm(`Delete ${what} from SwitchDesk, with their saved configs? The switches themselves aren't changed.`)) return;
+  if (!(await askConfirm(`Delete ${what} from SwitchDesk, with their saved configs? The switches themselves aren't changed.`))) return;
   try {
     await call("DeleteSwitches", ids);
     ids.forEach((id) => S.sel.delete(id));
@@ -837,6 +837,27 @@ function modal(html, wide) {
   setTimeout(() => v.querySelector("input:not([disabled]),select,textarea")?.focus(), 30);
   return v;
 }
+// askConfirm replaces window.confirm(), which the app's embedded web view on
+// macOS doesn't show (it answers "cancel" at once). It opens above any open
+// dialog and leaves that dialog as it is.
+function askConfirm(text, okLabel = "Delete", danger = true) {
+  return new Promise((resolve) => {
+    const v = document.createElement("div");
+    v.className = "cveil";
+    v.innerHTML = `<div class="modal" role="alertdialog" style="max-width:440px"><div class="body"><p style="margin:0;line-height:1.5">${esc(text)}</p></div>
+      <div class="foot"><span class="grow"></span><button class="btn" data-no>Cancel</button><button class="btn ${danger ? "danger" : "primary"}" data-yes>${esc(okLabel)}</button></div></div>`;
+    const done = (ok) => { document.removeEventListener("keydown", key, true); v.remove(); resolve(ok); };
+    const key = (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); done(false); }
+      if (e.key === "Enter") { e.stopPropagation(); e.preventDefault(); done(true); }
+    };
+    v.addEventListener("click", (e) => { if (e.target === v || e.target.closest("[data-no]")) done(false); else if (e.target.closest("[data-yes]")) done(true); });
+    document.addEventListener("keydown", key, true);
+    document.body.appendChild(v);
+    setTimeout(() => v.querySelector("[data-yes]")?.focus(), 30);
+  });
+}
+
 function closeModal() {
   $(".veil")?.remove();
   if (S.modalOpen) { S.modalOpen = false; refreshData(); }
@@ -924,7 +945,7 @@ async function openSwitchModal(sw, mode) {
     } catch (err) { msg(err.message); }
   };
   if (sw) $("#sdel", m).onclick = async () => {
-    if (!confirm(`Remove ${sw.name || sw.host} and its saved configs from SwitchDesk? The switch itself isn't changed.`)) return;
+    if (!(await askConfirm(`Remove ${sw.name || sw.host} and its saved configs from SwitchDesk? The switch itself isn't changed.`, "Remove"))) return;
     await call("DeleteSwitch", sw.id);
     closeModal();
     location.hash = "#/switches";
@@ -1024,7 +1045,7 @@ async function openCloudEdit(sw) {
     } catch (err) { $("#emsg", m).innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
   };
   $("#edel", m).onclick = async () => {
-    if (!confirm(`Remove ${sw.name || sw.host} from SwitchDesk? Nothing changes on the switch or in Instant On.`)) return;
+    if (!(await askConfirm(`Remove ${sw.name || sw.host} from SwitchDesk? Nothing changes on the switch or in Instant On.`, "Remove"))) return;
     await call("DeleteSwitch", sw.id);
     closeModal();
     location.hash = "#/switches";
@@ -1255,7 +1276,7 @@ async function openImport() {
   };
   $("#igo", m).onclick = async () => {
     const mode = $("input[name=im]:checked", m).value;
-    if (mode === "replace" && !confirm("Replace all switches, credentials and settings on this computer with the file's contents?")) return;
+    if (mode === "replace" && !(await askConfirm("Replace all switches, credentials and settings on this computer with the file's contents?", "Replace"))) return;
     try {
       const r = await call("ImportData", path, $("#ip", m).value, mode);
       closeModal();
@@ -1290,6 +1311,8 @@ function editCred(id) {
 }
 
 async function delCred(id) {
+  const c = S.creds.find((x) => x.id === id);
+  if (!(await askConfirm(`Remove the credentials "${c?.name || ""}"? Switches still using them have to be moved to other credentials first.`, "Remove"))) return;
   try { await call("DeleteCredential", id); renderSettings(); } catch (e) { toast(e.message, true); }
 }
 
