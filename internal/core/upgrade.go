@@ -766,11 +766,11 @@ func (m *Manager) pushImageCX(ctx context.Context, j *Job, sw store.Switch, s *s
 	}
 	vrf := m.vrfFor(sw, aruba.FamilyAOSCX)
 	st, err := aruba.EnableHTTPS(ctx, s, vrf)
-	if cmds := aruba.HTTPSRestoreCommands(st); len(cmds) > 0 || err != nil {
-		m.step(j, fmt.Sprintf("Turning on the web server for the upload (https-server vrf %s)", vrf))
-	}
 	if err != nil {
-		return err
+		return fmt.Errorf("turning on the web server (https-server vrf %s): %w", vrf, err)
+	}
+	if ch := aruba.HTTPSChanges(st); len(ch) > 0 {
+		m.step(j, "Changed for the upload: "+strings.Join(ch, "; "))
 	}
 	defer func() {
 		if cmds := aruba.HTTPSRestoreCommands(st); len(cmds) > 0 {

@@ -60,6 +60,18 @@ func EnableHTTPS(ctx context.Context, r Runner, vrf string) (HTTPSState, error) 
 	return st, nil
 }
 
+// HTTPSChanges are the config lines EnableHTTPS applied.
+func HTTPSChanges(st HTTPSState) []string {
+	var ch []string
+	if !st.WasOn && st.VRF != "" {
+		ch = append(ch, "https-server vrf "+st.VRF)
+	}
+	if st.ChangedRW {
+		ch = append(ch, "https-server rest access-mode read-write")
+	}
+	return ch
+}
+
 // HTTPSRestoreCommands are the config lines that undo EnableHTTPS.
 func HTTPSRestoreCommands(st HTTPSState) []string {
 	var cmds []string

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- AOS-CX firmware upload over HTTPS works with switches whose self-signed certificate has a negative serial number, such as the 6100. Before, the upload failed with "x509: negative serial number" and fell back to TFTP.
+- The job log lists exactly which web server settings were changed for the upload.
+
 ## 0.5.1
 
 - Firmware updates on AOS-CX upload the image over HTTPS to the switch's REST API, so the switch no longer has to reach your computer over TFTP. The web server is turned on in the management VRF for the upload if it was off, and turned off again afterwards.
