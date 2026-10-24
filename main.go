@@ -20,7 +20,7 @@ import (
 var assets embed.FS
 
 // Version is set at build time with -ldflags "-X main.Version=..."
-var Version = "0.8.2"
+var Version = "0.8.3"
 
 func main() {
 	app := NewApp()
@@ -30,6 +30,7 @@ func main() {
 		Height:           860,
 		MinWidth:         1024,
 		MinHeight:        640,
+		WindowStartState: options.Maximised,
 		BackgroundColour: &options.RGBA{R: 14, G: 17, B: 22, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,

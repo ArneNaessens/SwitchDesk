@@ -155,7 +155,10 @@ function renderDashboard() {
     return;
   }
   const pct = (n) => (d.total ? (n / d.total) * 100 : 0);
-  const issues = d.issues.filter((i) => S.filter === "all" ? i.severity !== "info" : i.severity === S.filter);
+  const cats = {};
+  for (const i of d.issues.filter(sevMatch)) cats[i.category] = (cats[i.category] || 0) + 1;
+  if (S.icat && !cats[S.icat]) S.icat = "";
+  const refocus = document.activeElement?.id === "iq" ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const chip = (k, label, n) => `<button class="chip${S.filter === k ? " on" : ""}" onclick="S.filter='${k}';renderDashboard()">${label}${n !== undefined ? ` ${n}` : ""}</button>`;
   const bySev = { critical: 0, warning: 1, info: 2, "": 3 };
   // offline first, then by worst problem; disabled switches go last
@@ -178,13 +181,36 @@ function renderDashboard() {
     <div class="dash">
       <section class="panel">
         <h2>Problems<span class="grow"></span><span class="chips">${chip("all", "Critical and warnings")}${chip("critical", "Critical", d.critical)}${chip("warning", "Warnings", d.warning)}${chip("info", "Notes", d.info)}</span></h2>
-        <div class="issues-scroll">${issues.length ? issues.map(issueRow).join("") : `<div class="empty"><h3>Nothing to fix</h3><p>${S.filter === "all" ? "No critical problems or warnings across your switches." : "No items in this category."}</p></div>`}</div>
+        <div class="ifilter"><span class="searchbox">${ICON.search}<input type="text" id="iq" placeholder="Filter problems  /" value="${esc(S.iq || "")}" title="Matches the problem, the switch name and the details, e.g. telnet, fan, core, optical"></span>
+          <select id="icat"><option value="">All categories</option>${Object.keys(cats).sort().map((c) => `<option value="${esc(c)}" ${c === S.icat ? "selected" : ""}>${esc(c)} (${cats[c]})</option>`).join("")}</select>
+          <span class="faint" id="icount"></span></div>
+        <div class="issues-scroll" id="issuelist"></div>
       </section>
       <section class="panel">
         <h2>Switches<span class="grow"></span><a data-go="#/switches" class="muted" style="font-weight:400;font-size:13px">All switches</a></h2>
         <div class="rack issues-scroll">${plates.map(plate).join("")}</div>
       </section>
     </div></div>`;
+  renderIssueList();
+  const iq = $("#iq");
+  iq.oninput = () => { S.iq = iq.value; renderIssueList(); };
+  iq.onkeydown = (e) => { if (e.key === "Escape" && iq.value) { e.stopPropagation(); iq.value = S.iq = ""; renderIssueList(); } };
+  $("#icat").onchange = (e) => { S.icat = e.target.value; renderIssueList(); };
+  if (refocus) { iq.focus(); iq.setSelectionRange(refocus[0], refocus[1]); }
+}
+
+// the problems list on the dashboard: severity chips, a category and free text
+function sevMatch(i) { return S.filter === "all" || !S.filter ? i.severity !== "info" : i.severity === S.filter; }
+function renderIssueList() {
+  const box = $("#issuelist");
+  if (!box || !S.dash) return;
+  const words = (S.iq || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const all = S.dash.issues.filter(sevMatch);
+  const list = all.filter((i) => (!S.icat || i.category === S.icat) &&
+    words.every((w) => `${i.title} ${i.switchName} ${i.detail} ${i.category}`.toLowerCase().includes(w)));
+  const filtered = words.length || S.icat;
+  box.innerHTML = list.length ? list.map(issueRow).join("") : `<div class="empty"><h3>${filtered ? "No matches" : "Nothing to fix"}</h3><p>${filtered ? "No problems match this filter." : S.filter === "all" ? "No critical problems or warnings across your switches." : "No items in this category."}</p>${filtered ? `<button class="btn small" onclick="S.iq='';S.icat='';renderDashboard()">Clear filter</button>` : ""}</div>`;
+  $("#icount").textContent = filtered ? `${list.length} of ${all.length}` : "";
 }
 
 function issueRow(i) {
@@ -864,7 +890,8 @@ function closeModal() {
 }
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.modalOpen) closeModal();
-  if (e.key === "/" && !S.modalOpen && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && $("#swsearch")) { e.preventDefault(); $("#swsearch").focus(); }
+  const box = $("#swsearch") || $("#iq");
+  if (e.key === "/" && !S.modalOpen && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && box) { e.preventDefault(); box.focus(); }
 });
 
 function credOptions(sel, kind = "") {

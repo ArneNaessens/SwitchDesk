@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.3
+
+- The window opens maximised.
+- The dashboard's problems list has a quick filter: type to match the problem, switch name or details (press `/` to jump there, Esc to clear), and pick a category. It works together with the severity chips and shows how many of the problems match.
+
 ## 0.8.2
 
 - Delete and Remove buttons work in the Mac app. They asked for confirmation with a browser dialog that the app's window doesn't show, so the answer was always "cancel". Confirmation now uses SwitchDesk's own dialog, for switches, firmware images, credentials and replacing data on import.

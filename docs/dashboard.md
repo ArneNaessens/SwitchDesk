@@ -4,7 +4,7 @@
 
 The top line counts switches that are online, offline and disabled, plus critical problems and warnings. The bar under it shows the online/offline split at a glance.
 
-**Problems** lists everything that needs attention across all switches. The chips filter it: critical and warnings together (the default), only critical, only warnings, or notes. Click a problem to open its switch.
+**Problems** lists everything that needs attention across all switches. The chips filter it: critical and warnings together (the default), only critical, only warnings, or notes. Under them, type to filter by the problem, switch name or details (press `/` to jump to the box, Esc to clear), or pick a category such as Security or Optics. Click a problem to open its switch.
 
 **Switches** shows each switch as a small faceplate, offline ones first, then by their worst problem. Every LED is a port:
 

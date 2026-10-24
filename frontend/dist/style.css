@@ -324,3 +324,8 @@ dl.kv dd { margin: 0; user-select: text; word-break: break-word; }
 .about-logo img { width: 190px; height: auto; display: block; }
 .cloudsite { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .cloudsite-h { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.ifilter { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); }
+.ifilter .searchbox { flex: 1; }
+.ifilter .searchbox input { width: 100%; }
+.ifilter select { width: auto; max-width: 220px; }
+.ifilter #icount { font-size: 12.5px; white-space: nowrap; }
