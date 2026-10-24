@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3
+
+- The network map no longer draws links between branches that are only connected through routers. A neighbor is now matched to a switch by its chassis MAC first. A matching IP address or name only counts if the MAC agrees, or if the other switch reports the link back. Branches that reuse the same private subnets used to get false links this way.
+- "Different spanning-tree roots" is only raised for switches joined by layer 2 links. Routed branches each have their own root, and that's no longer flagged.
+
 ## 0.5.2
 
 - AOS-CX firmware upload over HTTPS works with switches whose self-signed certificate has a negative serial number, such as the 6100. Before, the upload failed with "x509: negative serial number" and fell back to TFTP.

@@ -538,7 +538,7 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 }
 
 func (m *Manager) Dashboard() Dashboard {
-	vs, _, snaps, names := m.views()
+	vs, infos, snaps, names := m.views()
 	d := Dashboard{Switches: vs, Families: map[string]int{}, DataDir: m.st.Dir()}
 	for _, v := range vs {
 		d.Total++
@@ -562,7 +562,7 @@ func (m *Manager) Dashboard() Dashboard {
 		d.Families[fam]++
 		d.Issues = append(d.Issues, v.Issues...)
 	}
-	d.Issues = append(d.Issues, networkIssues(snaps, names)...)
+	d.Issues = append(d.Issues, networkIssues(snaps, names, buildTopology(infos, nil, false))...)
 	sortIssues(d.Issues)
 	for _, is := range d.Issues {
 		switch is.Severity {

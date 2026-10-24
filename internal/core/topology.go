@@ -48,7 +48,8 @@ type switchInfo struct {
 }
 
 func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoints bool) Topology {
-	idx := map[string]string{} // match key -> node id
+	idx := map[string]string{}           // match key -> node id
+	macs := map[string]map[string]bool{} // node id -> MACs that switch is known by
 	nodes := map[string]*Node{}
 	for _, in := range infos {
 		n := &Node{ID: in.sw.ID, Label: displayName(in.sw, in.snap), Kind: "switch", Managed: true, Host: in.sw.Host, Online: in.online, Disabled: in.sw.Disabled}
@@ -62,6 +63,10 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 			for _, m := range []string{in.snap.Facts.BaseMAC, in.snap.STP.BridgeMAC} {
 				if mac := aruba.NormMAC(m); mac != "" {
 					idx["mac:"+mac] = in.sw.ID
+					if macs[in.sw.ID] == nil {
+						macs[in.sw.ID] = map[string]bool{}
+					}
+					macs[in.sw.ID][mac] = true
 				}
 			}
 		}
@@ -81,25 +86,56 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 		nodes[n.ID] = n
 	}
 
+	// A chassis MAC is unique; an IP address or a name isn't. Branches behind
+	// routers often reuse the same private subnets and switch names, so a
+	// neighbor that matches a managed switch by IP or name is only taken to be
+	// that switch when its chassis MAC doesn't say otherwise.
+	// A stack can advertise a MAC we never read, so a disagreeing MAC is still
+	// accepted when the other switch reports the link back.
+	byID := map[string]switchInfo{}
+	for _, in := range infos {
+		byID[in.sw.ID] = in
+	}
+	seesBack := func(id, reporter string) bool {
+		other, me := byID[id], byID[reporter]
+		if other.snap == nil {
+			return false
+		}
+		for _, nb := range other.snap.Neighbors {
+			if (nb.MgmtIP != "" && nb.MgmtIP == me.sw.Host) || macs[reporter][aruba.NormMAC(nb.ChassisID)] {
+				return true
+			}
+		}
+		return false
+	}
+	chassis := func(nb aruba.Neighbor) string { return aruba.NormMAC(nb.ChassisID) }
+	var reporter string
+	agrees := func(id string, nb aruba.Neighbor) bool {
+		mac := chassis(nb)
+		if mac == "" || len(macs[id]) == 0 || macs[id][mac] {
+			return true
+		}
+		return seesBack(id, reporter)
+	}
 	resolve := func(nb aruba.Neighbor) (string, bool) {
-		if nb.MgmtIP != "" {
-			if id, ok := idx["ip:"+nb.MgmtIP]; ok {
+		if mac := chassis(nb); mac != "" {
+			if id, ok := idx["mac:"+mac]; ok {
 				return id, true
 			}
 		}
-		if mac := aruba.NormMAC(nb.ChassisID); mac != "" {
-			if id, ok := idx["mac:"+mac]; ok {
+		if nb.MgmtIP != "" {
+			if id, ok := idx["ip:"+nb.MgmtIP]; ok && agrees(id, nb) {
 				return id, true
 			}
 		}
 		name := strings.ToLower(nb.SysName)
 		if name != "" {
-			if id, ok := idx["name:"+name]; ok {
+			if id, ok := idx["name:"+name]; ok && agrees(id, nb) {
 				return id, true
 			}
 			// CDP device IDs are often FQDNs
 			if i := strings.IndexByte(name, '.'); i > 0 {
-				if id, ok := idx["name:"+name[:i]]; ok {
+				if id, ok := idx["name:"+name[:i]]; ok && agrees(id, nb) {
 					return id, true
 				}
 			}
@@ -140,6 +176,7 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 		for _, p := range in.snap.Ports {
 			portUp[p.Name] = p.Up
 		}
+		reporter = in.sw.ID
 		for _, nb := range in.snap.Neighbors {
 			to, managed := resolve(nb)
 			if to == "" || to == in.sw.ID {

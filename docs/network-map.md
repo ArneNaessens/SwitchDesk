@@ -2,7 +2,7 @@
 
 ![Network map](images/map.png){ .shot }
 
-The map is built from what each switch sees over LLDP and CDP. Neighbors are matched to switches in SwitchDesk by management address, chassis MAC or hostname, so a link reported from both ends is drawn once.
+The map is built from what each switch sees over LLDP and CDP. Neighbors are matched to switches in SwitchDesk by chassis MAC first, so a link reported from both ends is drawn once. A matching management address or hostname only counts if the MAC agrees, or if the other switch reports the link back. Branches that reuse the same private subnets therefore don't get links drawn between them.
 
 ## Layout
 

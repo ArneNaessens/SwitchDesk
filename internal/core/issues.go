@@ -164,29 +164,57 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 	return out
 }
 
-// networkIssues looks across switches (e.g. more than one STP root).
-func networkIssues(snaps map[string]*aruba.Snapshot, names map[string]string) []Issue {
-	roots := map[string][]string{}
+// networkIssues looks across switches (e.g. more than one STP root). Roots
+// are only compared between switches joined by layer 2 links on the map:
+// branches connected through routers each have their own spanning tree, and
+// a root per branch is expected.
+func networkIssues(snaps map[string]*aruba.Snapshot, names map[string]string, topo Topology) []Issue {
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(x string) string {
+		if p, ok := parent[x]; ok && p != x {
+			r := find(p)
+			parent[x] = r
+			return r
+		}
+		parent[x] = x
+		return x
+	}
+	for _, e := range topo.Edges {
+		parent[find(e.From)] = find(e.To)
+	}
+	type domain struct{ roots map[string][]string }
+	domains := map[string]*domain{}
 	for id, s := range snaps {
 		if s == nil || !s.STP.Enabled || s.STP.RootMAC == "" {
 			continue
 		}
-		roots[s.STP.RootMAC] = append(roots[s.STP.RootMAC], names[id])
+		d := domains[find(id)]
+		if d == nil {
+			d = &domain{roots: map[string][]string{}}
+			domains[find(id)] = d
+		}
+		d.roots[s.STP.RootMAC] = append(d.roots[s.STP.RootMAC], names[id])
 	}
-	if len(roots) <= 1 {
-		return nil
+	var out []Issue
+	for _, d := range domains {
+		if len(d.roots) <= 1 {
+			continue
+		}
+		var parts []string
+		for mac, sws := range d.roots {
+			sort.Strings(sws)
+			parts = append(parts, fmt.Sprintf("%s (%s)", mac, strings.Join(sws, ", ")))
+		}
+		sort.Strings(parts)
+		out = append(out, Issue{
+			Severity: Warning, Category: "Spanning tree", SwitchName: "Network",
+			Title:  fmt.Sprintf("%d different spanning-tree roots in one layer 2 network", len(d.roots)),
+			Detail: "These switches are linked at layer 2 but don't agree on the root. Roots seen: " + strings.Join(parts, "; ") + ". Mixed MST regions or a link where spanning tree is off can cause this.",
+		})
 	}
-	var parts []string
-	for mac, sws := range roots {
-		sort.Strings(sws)
-		parts = append(parts, fmt.Sprintf("%s (%s)", mac, strings.Join(sws, ", ")))
-	}
-	sort.Strings(parts)
-	return []Issue{{
-		Severity: Warning, Category: "Spanning tree", SwitchName: "Network",
-		Title:  fmt.Sprintf("%d different spanning-tree roots", len(roots)),
-		Detail: "Expected one root per STP domain. Roots seen: " + strings.Join(parts, "; ") + ". Mixed MST regions or isolated segments can cause this.",
-	}}
+	sort.Slice(out, func(i, j int) bool { return out[i].Detail < out[j].Detail })
+	return out
 }
 
 func sortIssues(is []Issue) {

@@ -72,9 +72,20 @@ func TestTopologyAndIssues(t *testing.T) {
 	if len(off) != 1 || off[0].Severity != Critical {
 		t.Fatalf("offline: %+v", off)
 	}
-	split := networkIssues(map[string]*aruba.Snapshot{"a": coreSnap, "b": {STP: aruba.STP{Enabled: true, RootMAC: "ff:ff:ff:00:00:01"}}}, map[string]string{"a": "core", "b": "acc"})
-	if len(split) != 1 {
+	two := map[string]*aruba.Snapshot{"a": coreSnap, "b": {STP: aruba.STP{Enabled: true, RootMAC: "ff:ff:ff:00:00:01"}}}
+	names := map[string]string{"a": "core", "b": "acc"}
+	linked := Topology{Edges: []Edge{{From: "a", To: "b"}}}
+	if split := networkIssues(two, names, linked); len(split) != 1 {
 		t.Fatal("expected split-root issue")
+	}
+	// linked only through an unmanaged switch still counts as one layer 2 network
+	viaExt := Topology{Edges: []Edge{{From: "a", To: "ext:x"}, {From: "b", To: "ext:x"}}}
+	if split := networkIssues(two, names, viaExt); len(split) != 1 {
+		t.Fatal("expected split-root issue through an unmanaged switch")
+	}
+	// branches joined by routing: a root each is normal
+	if split := networkIssues(two, names, Topology{}); len(split) != 0 {
+		t.Fatalf("routed branches flagged: %+v", split)
 	}
 }
 
@@ -131,5 +142,51 @@ func TestDisabledSwitch(t *testing.T) {
 	m.Enqueue(b.ID)
 	if m.stat(b.ID).Collecting {
 		t.Fatal("paused switch was queued")
+	}
+}
+
+// Two branches joined only by routing reuse 192.168.13.0/24. A switch in the
+// first branch sees a local device at 192.168.13.2, the same address as the
+// managed switch in the other branch. That must not draw a link between them.
+func TestTopologyOverlappingBranchIPs(t *testing.T) {
+	fl2 := store.Switch{ID: "fl2", Host: "172.16.254.14"}
+	digomi := store.Switch{ID: "digomi", Host: "192.168.13.2"}
+	fl2Snap := &aruba.Snapshot{
+		Facts: aruba.Facts{Hostname: "SW-HP-FL2-R", BaseMAC: "ec:02:73:00:00:01"},
+		STP:   aruba.STP{Enabled: true, Ports: []aruba.STPPort{{Port: "24", State: "Blocking"}}},
+		Neighbors: []aruba.Neighbor{
+			// a local switch in FL2's branch that happens to use 192.168.13.2
+			{Protocol: "lldp", LocalPort: "24", MgmtIP: "192.168.13.2", ChassisID: "c0:74:ad:ea:29:d8", Capabilities: "Bridge"},
+		},
+	}
+	digomiSnap := &aruba.Snapshot{
+		Facts: aruba.Facts{Hostname: "SW-DIGOMI-M", BaseMAC: "38:21:c7:00:00:02"},
+		STP:   aruba.STP{Enabled: true, IsRoot: true},
+	}
+	topo := buildTopology([]switchInfo{{sw: fl2, snap: fl2Snap, online: true}, {sw: digomi, snap: digomiSnap, online: true}}, nil, false)
+	for _, e := range topo.Edges {
+		if (e.From == "fl2" && e.To == "digomi") || (e.From == "digomi" && e.To == "fl2") {
+			t.Fatalf("drew a link across branches: %+v", e)
+		}
+	}
+	if len(topo.Edges) != 1 || len(topo.Nodes) != 3 {
+		t.Fatalf("want FL2 linked to its own neighbor: nodes %+v edges %+v", topo.Nodes, topo.Edges)
+	}
+
+	// A stack advertises a MAC we never read, but both sides report the link,
+	// so it is still drawn as one link between the managed switches.
+	stack := store.Switch{ID: "stack", Host: "10.1.1.1"}
+	acc := store.Switch{ID: "acc", Host: "10.1.1.2"}
+	stackSnap := &aruba.Snapshot{
+		Facts:     aruba.Facts{Hostname: "CORE-STACK", BaseMAC: "00:00:00:00:00:aa"},
+		Neighbors: []aruba.Neighbor{{Protocol: "lldp", LocalPort: "1/1/1", MgmtIP: "10.1.1.2", ChassisID: "00:00:00:00:00:bb", PortID: "49"}},
+	}
+	accSnap := &aruba.Snapshot{
+		Facts:     aruba.Facts{Hostname: "ACC", BaseMAC: "00:00:00:00:00:bb"},
+		Neighbors: []aruba.Neighbor{{Protocol: "lldp", LocalPort: "49", MgmtIP: "10.1.1.1", ChassisID: "00:00:00:00:99:99", PortID: "1/1/1"}},
+	}
+	topo = buildTopology([]switchInfo{{sw: stack, snap: stackSnap, online: true}, {sw: acc, snap: accSnap, online: true}}, nil, false)
+	if len(topo.Nodes) != 2 || len(topo.Edges) != 1 {
+		t.Fatalf("stack link: nodes %+v edges %+v", topo.Nodes, topo.Edges)
 	}
 }
