@@ -9,7 +9,7 @@ Either way they show up on the dashboard, in the switch list and on the network 
 
 ## Local management
 
-1. Click **Add switch** and pick **Instant On (local)**.
+1. Click **Add switch** and pick **Instant On (local)** at the top, or **Instant On (web interface)** as the switch type.
 2. Enter the switch's address and the login you use on its web page.
 3. Leave the port on **443** (HTTPS). If the switch only answers on HTTP, use **80**. **Test connection** tries the other port too and tells you which one works.
 

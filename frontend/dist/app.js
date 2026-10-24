@@ -853,29 +853,42 @@ const sshCreds = () => S.creds.filter((c) => !c.kind);
 const cloudCreds = () => S.creds.filter((c) => c.kind === "instanton");
 const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"]];
 const BULK_FAMILIES = [...FAMILIES, ["instant-on", "Instant On (web interface, port 443)"]];
+const SWITCH_TYPES = [...FAMILIES, ["instant-on", "Instant On (web interface)"]];
 
 const addChips = (on) => `<div class="chips" style="margin-bottom:14px">${[["ssh", "Over SSH", "openSwitchModal()"], ["web", "Instant On (local)", "openSwitchModal(null, 'web')"], ["cloud", "Instant On cloud", "openCloudModal()"]].map(([k, l, f]) => `<button class="chip${k === on ? " on" : ""}" ${k === on ? "" : `onclick="${f}"`}>${l}</button>`).join("")}</div>`;
 
 async function openSwitchModal(sw, mode) {
   if (sw?.cloud) return openCloudEdit(sw);
-  const web = mode === "web" || !!sw?.web;
+  // Instant On 1830/1930/1960 have no SSH: picking Instant On as the type
+  // reads the switch through its web interface instead
+  let web = mode === "web" || !!sw?.web || sw?.family === "instant-on";
   S.creds = await call("Credentials");
   const e = sw || { port: web ? 443 : 22, family: web ? "instant-on" : "auto", credentialId: sshCreds()[0]?.id };
   const m = modal(`<h2>${sw ? "Edit switch" : "Add switch"}</h2><div class="body">
     ${sw ? "" : addChips(web ? "web" : "ssh")}
-    ${web ? `<p class="muted" style="font-size:13px;margin-top:0">For Instant On switches in local management mode. SwitchDesk signs in to the switch's own web page with its admin login and reads it from there.</p>` : ""}
+    <p class="muted" id="webinfo" style="font-size:13px;margin-top:0;${web ? "" : "display:none"}">For Instant On switches in local management mode. SwitchDesk signs in to the switch's own web page with its admin login and reads it from there.</p>
     <div class="row"><label class="f"><span>Address</span><input type="text" id="sh" class="mono" placeholder="10.0.0.11" value="${esc(e.host || "")}"></label>
-      <label class="f" style="flex:0 0 90px"><span>${web ? "Port" : "SSH port"}</span><input type="number" id="sp" value="${e.port || (web ? 443 : 22)}"></label></div>
-    ${web ? `<p class="faint" style="font-size:12.5px;margin:-4px 0 12px">443 for HTTPS, or 80 if the switch only answers on HTTP. Test connection tries the other one too.</p>` : ""}
+      <label class="f" style="flex:0 0 90px"><span id="splabel">${web ? "Port" : "SSH port"}</span><input type="number" id="sp" value="${web && (!e.port || e.port === 22) ? 443 : e.port || 22}"></label></div>
+    <p class="faint" id="webhint" style="font-size:12.5px;margin:-4px 0 12px;${web ? "" : "display:none"}">443 for HTTPS, or 80 if the switch only answers on HTTP. Test connection tries the other one too.</p>
     <label class="f"><span>Name <span class="faint">(optional, the hostname is used otherwise)</span></span><input type="text" id="sn" value="${esc(e.name || "")}"></label>
     <div class="row"><label class="f"><span>Credentials</span><select id="sc">${credOptions(e.credentialId)}</select></label>
-      <label class="f" ${web ? 'style="display:none"' : ""}><span>Switch type</span><select id="sf">${FAMILIES.map(([k, l]) => `<option value="${k}" ${k === (e.family || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <label class="f"><span>Switch type</span><select id="sf">${SWITCH_TYPES.map(([k, l]) => `<option value="${k}" ${k === (web ? "instant-on" : e.family || "auto") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div id="newcred" style="display:none" class="row"><label class="f"><span>Username</span><input type="text" id="cu" value="admin"></label><label class="f"><span>Password</span><input type="password" id="cp"></label></div>
     <label class="f"><span>Site</span><input type="text" id="ss" value="${esc(e.site || "")}"></label>
     <label class="f"><span>Notes</span><input type="text" id="so" value="${esc(e.notes || "")}"></label>
     <div id="smsg"></div></div>
     <div class="foot">${sw ? `<button class="btn danger" id="sdel">Remove</button>` : ""}<span class="grow"></span><button class="btn" id="stest">Test connection</button><button class="btn" data-close>Cancel</button><button class="btn primary" id="ssave">${sw ? "Save" : "Add switch"}</button></div>`);
   const sc = $("#sc", m);
+  $("#sf", m).onchange = () => {
+    web = $("#sf", m).value === "instant-on";
+    $("#webinfo", m).style.display = $("#webhint", m).style.display = web ? "" : "none";
+    $("#splabel", m).textContent = web ? "Port" : "SSH port";
+    const sp = $("#sp", m);
+    if (web && (+sp.value === 22 || !sp.value)) sp.value = 443;
+    if (!web && (+sp.value === 443 || +sp.value === 80)) sp.value = 22;
+    const chips = $(".chips", m);
+    if (chips) chips.outerHTML = addChips(web ? "web" : "ssh");
+  };
   const toggle = () => ($("#newcred", m).style.display = sc.value === "__new" || !sshCreds().length ? "flex" : "none");
   sc.onchange = toggle;
   if (!sshCreds().length) sc.value = "__new";

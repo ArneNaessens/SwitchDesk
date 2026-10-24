@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- **Instant On (web interface)** is back in the switch type list, in both Add switch and Edit switch. Picking it switches the dialog to the web interface: port 443 and the switch's web login. Editing an Instant On switch that was added for SSH opens it this way too, so saving moves it to the web interface.
+
 ## 0.8.0
 
 - Optical levels for SFP, SFP+ and QSFP transceivers on AOS-S and AOS-CX: Rx and Tx power in dBm (per lane on QSFP), temperature, model and serial, in a new **Optics** table on the Ports tab and in the port LED tooltips.
