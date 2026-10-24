@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/jaba0x/switchdesk/internal/aruba"
+	"github.com/jaba0x/switchdesk/internal/cxrest"
 	"github.com/jaba0x/switchdesk/internal/store"
 )
 
@@ -41,8 +43,10 @@ type fakeAOSS struct {
 	push                         bool // the switch supports it
 	ftOn, tftpCliOff, tftpSrvOff bool
 
-	cx       bool // behave like an AOS-CX 6100 instead of AOS-S
-	cxNoTFTP bool // the switch can't reach our TFTP server
+	cx       bool     // behave like an AOS-CX 6100 instead of AOS-S
+	cxNoTFTP bool     // the switch can't reach our TFTP server
+	cxCfg    []string // https-server lines in the running config
+	cxCmds   []string // config commands received
 }
 
 func newFakeAOSS(t *testing.T) *fakeAOSS {
@@ -565,8 +569,27 @@ func (f *fakeAOSS) shellCX(ch ssh.Channel, nc net.Conn) {
 			nc.Close()
 			f.reboot()
 			return
-		case cmd == "show running-config":
+		case cmd == "show running-config" && f.cx:
 			io.WriteString(ch, "hostname SW-CX\r\n")
+			for _, l := range f.cxCfg {
+				io.WriteString(ch, l+"\r\n")
+			}
+		case cmd == "configure terminal" || cmd == "end":
+		case strings.HasPrefix(cmd, "https-server ") || strings.HasPrefix(cmd, "no https-server "):
+			f.cxCmds = append(f.cxCmds, cmd)
+			if strings.HasPrefix(cmd, "no ") {
+				var keep []string
+				for _, l := range f.cxCfg {
+					if l != strings.TrimPrefix(cmd, "no ") {
+						keep = append(keep, l)
+					}
+				}
+				f.cxCfg = keep
+			} else if cmd == "https-server rest access-mode read-write" {
+				io.WriteString(ch, "Invalid input: access-mode\r\n") // 10.08+ dropped it
+			} else {
+				f.cxCfg = append(f.cxCfg, cmd)
+			}
 		case cmd == "no page", cmd == "write memory", cmd == "terminal-length 1000", cmd == "", cmd == "\x03":
 		default:
 			fmt.Fprintf(ch, "Invalid input: %s\r\n", cmd)
@@ -586,6 +609,11 @@ func cxSetup(t *testing.T, noTFTP bool) (*Manager, *fakeAOSS, string, []byte) {
 	host, portS, _ := net.SplitHostPort(fake.addr)
 	port, _ := strconv.Atoi(portS)
 	sw, _ := st.SaveSwitch(store.Switch{Host: host, Port: port, CredentialID: cred.ID})
+	oldPush := cxPush
+	cxPush = func(context.Context, string, string, string, string, string, io.Reader, int64, func(int64, int64)) error {
+		return fmt.Errorf("%w (connection refused)", cxrest.ErrNoREST)
+	}
+	t.Cleanup(func() { cxPush = oldPush })
 	m := New(st, nil)
 	m.Start()
 	t.Cleanup(m.Stop)
@@ -663,5 +691,56 @@ func TestUpgradeTFTPNeverRequestedFailsFast(t *testing.T) {
 	}
 	if d := time.Since(start); d > 20*time.Second {
 		t.Fatalf("took %s to give up", d)
+	}
+}
+
+// The user's case: the switch can't reach this computer at all, so TFTP is
+// out. The image goes to the AOS-CX REST API over HTTPS instead, with the web
+// server turned on only for the upload.
+func TestUpgradeAOSCXOverHTTPS(t *testing.T) {
+	m, fake, id, payload := cxSetup(t, true) // TFTP would hang
+	var got []byte
+	var gotBank, gotUser string
+	cxPush = func(_ context.Context, base, user, _ string, bank, _ string, r io.Reader, _ int64, progress func(int64, int64)) error {
+		fake.mu.Lock()
+		on := len(fake.cxCfg) > 0
+		fake.mu.Unlock()
+		if !on {
+			return fmt.Errorf("%w (web server off)", cxrest.ErrNoREST)
+		}
+		got, _ = io.ReadAll(r)
+		gotBank, gotUser = bank, user
+		progress(int64(len(got)), int64(len(got)))
+		fake.mu.Lock()
+		fake.secondary = "PL.10.16.1060"
+		fake.mu.Unlock()
+		return nil
+	}
+	if _, err := m.StartUpgrade([]string{id}, "", true, false); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, m, 60*time.Second)
+	if j.State != "done" {
+		t.Fatalf("job ended %s: %s\n%s", j.State, j.Error, strings.Join(j.Log, "\n"))
+	}
+	if !bytes.Equal(got, payload) || gotBank != "secondary" || gotUser != "admin" {
+		t.Fatalf("upload got %d bytes into %q as %q", len(got), gotBank, gotUser)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.running != "secondary" {
+		t.Fatalf("running %s", fake.running)
+	}
+	if len(fake.cxCfg) != 0 {
+		t.Fatalf("web server left on: %v (commands %v)", fake.cxCfg, fake.cxCmds)
+	}
+	want := "https-server vrf default"
+	if len(fake.cxCmds) == 0 || fake.cxCmds[0] != want {
+		t.Fatalf("config commands: %v", fake.cxCmds)
+	}
+	for _, l := range j.Log {
+		if strings.Contains(l, "TFTP") {
+			t.Fatalf("TFTP was used: %s", strings.Join(j.Log, "\n"))
+		}
 	}
 }

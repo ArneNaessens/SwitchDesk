@@ -48,4 +48,4 @@ On the other computer, **Import** asks for the passphrase, shows what's in the f
 - SSH host keys are pinned on first connect. A changed key stops SwitchDesk from connecting until you confirm.
 - The console only runs `show`, `ping` and `traceroute`.
 - Configuration changes only happen when you start them, and you see the commands first.
-- Nothing leaves your computer except SSH to your switches, TFTP while a firmware update runs, and the update check against GitHub.
+- Nothing leaves your computer except SSH to your switches, HTTPS to AOS-CX switches while a firmware update uploads, TFTP only as a fallback, and the update check against GitHub.

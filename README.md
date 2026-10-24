@@ -74,7 +74,9 @@ Each switch shows the version it runs, what's in its primary and secondary bank,
 
 On AOS-S, SwitchDesk uploads the image to the switch over SSH (SFTP, or SCP on older firmware). The switch never has to connect back to your computer, so this works over a VPN or zero trust access. For the upload it turns on `ip ssh filetransfer`, which also switches off the switch's TFTP client and server, and afterwards it puts those settings back the way they were.
 
-AOS-CX switches, and AOS-S switches that refuse the upload, pull the image from SwitchDesk over TFTP (UDP 69) instead. For that the switch has to be able to reach your computer, and your firewall may ask to allow it the first time.
+On AOS-CX, which has no SFTP or SCP server, the image goes over HTTPS to the switch's REST API, again from your computer to the switch. If the web server is off in the management VRF, SwitchDesk turns it on for the upload and off again afterwards.
+
+Only if the upload is refused does the switch pull the image from SwitchDesk over TFTP (UDP 69). For that the switch has to be able to reach your computer.
 
 HPE doesn't offer firmware downloads without signing in, so the library is filled by you: add `.swi` files you downloaded, or paste a download link from the HPE Networking Support Portal and SwitchDesk fetches it. Images are matched to switches by platform code (WC, YA, KB, FL, PL…), read from the file name or the image itself.
 
@@ -169,6 +171,7 @@ internal/aruba   command sets per family, output parsers, VLAN change builder
 internal/core    polling, problem rules, network map
 internal/store     inventory, encrypted credentials, snapshots, config copies
 internal/firmware  image library, version matching, built-in TFTP server
+internal/cxrest    firmware upload to AOS-CX over its REST API
 ```
 
 Parsers are tested against sample output from both AOS-S and AOS-CX. If a switch prints something they misread, the **Raw output** tab shows exactly what came back, and that makes a good test case.

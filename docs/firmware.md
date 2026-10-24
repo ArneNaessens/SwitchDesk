@@ -22,7 +22,9 @@ An update goes like this:
 
 The switch only accepts uploads with `ip ssh filetransfer` turned on, and turning it on also switches off its TFTP client and server. SwitchDesk reads the running config first, turns file transfer on for the upload, and then restores what was there before. The job log lists the exact commands it ran to put things back.
 
-**AOS-CX**, and any AOS-S switch that refuses the upload, pulls the image from your computer over **TFTP** (UDP port 69) instead. SwitchDesk runs its own small TFTP server only while an update is copying, and it only serves the image that's being installed. For this the switch has to be able to reach your computer. That isn't possible over most VPN and zero trust setups, and the job then fails with `Exceeded 5 retransmits` or `Peer unreachable`.
+**AOS-CX** gets the image uploaded over **HTTPS** to its REST API (TCP 443), the same upload its web page uses. AOS-CX has no SFTP or SCP server, but HTTPS also goes from your computer to the switch, so it works over a VPN or zero trust access too. If the web server is off in the management VRF, SwitchDesk turns on `https-server vrf <vrf>` for the upload and turns it off again afterwards. On releases older than 10.08 it also sets `https-server rest access-mode read-write` for the upload and puts it back to read-only. The SSH account has to be an administrator.
+
+If the upload is refused on either family, the switch pulls the image from your computer over **TFTP** (UDP port 69) instead. SwitchDesk runs its own small TFTP server only while an update is copying, and it only serves the image that's being installed. For this the switch has to be able to reach your computer. That isn't possible over most VPN and zero trust setups, and the job then fails with `Exceeded 5 retransmits` or `Peer unreachable`.
 
 !!! warning "Keep SwitchDesk open"
     SwitchDesk sends or serves the image, so it has to keep running until the jobs finish. For TFTP, your Mac or Windows firewall may ask the first time whether to allow SwitchDesk to accept connections. Allow it.

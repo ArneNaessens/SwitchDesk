@@ -49,8 +49,17 @@ func TestTelnetNotAssumed(t *testing.T) {
 	}
 	// with the probe, a refused port 23 wins over a config that looks open
 	snap := aruba.Snapshot{Family: aruba.FamilyAOSS, Security: aruba.Security{TelnetEnabled: true, HTTPPlain: true}}
-	probeTimeout = 500 * time.Millisecond
-	applyPortProbes(&snap, "127.0.0.1") // nothing listens on 23 or 80 here
+	probeTimeout = 3 * time.Second
+	free := func() string {
+		l, _ := net.Listen("tcp", "127.0.0.1:0")
+		_, p, _ := net.SplitHostPort(l.Addr().String())
+		l.Close()
+		return p
+	}
+	oldT, oldH := telnetPortNum, httpPortNum
+	telnetPortNum, httpPortNum = free(), free() // CI machines may run a web server on 80
+	defer func() { telnetPortNum, httpPortNum = oldT, oldH }()
+	applyPortProbes(&snap, "127.0.0.1")
 	if snap.Security.TelnetEnabled || snap.Security.HTTPPlain || snap.Security.TelnetPort == "" {
 		t.Fatalf("probe should clear telnet/http: %+v", snap.Security)
 	}

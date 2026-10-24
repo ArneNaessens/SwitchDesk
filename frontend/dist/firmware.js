@@ -191,7 +191,7 @@ function openUpgradeDialog(ids) {
     <p class="muted" style="font-size:13px;margin-top:0">The image goes into each switch's spare bank. The running version stays in the other bank, so you can boot back to it.</p>
     <label class="check" style="margin-bottom:8px"><input type="radio" name="rb" value="1" checked> Copy, then save the config and reboot <span class="faint">(one switch at a time)</span></label>
     <label class="check"><input type="radio" name="rb" value="0"> Copy only; the new version runs after the next reboot</label>
-    <p class="faint" style="font-size:12.5px;margin:14px 0 0">The switches download the image from this computer over TFTP (UDP port 69), so keep SwitchDesk open until the jobs finish. Your firewall may ask to allow it the first time.</p>
+    <p class="faint" style="font-size:12.5px;margin:14px 0 0">SwitchDesk uploads the image to each switch (SSH on AOS-S, HTTPS on AOS-CX), so keep it open until the jobs finish. TFTP is only used if a switch refuses the upload.</p>
     <div id="umsg"></div></div>
     <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="ugo">${ICON.up}Start update</button></div>`, true);
   $("#ugo", m).onclick = async () => {

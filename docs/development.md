@@ -39,6 +39,7 @@ internal/aruba         commands per family, output parsers, VLAN changes, firmwa
 internal/core          polling, problem rules, network map, update jobs
 internal/store         inventory, encrypted credentials, snapshots, config copies, export
 internal/firmware      image library, version matching, TFTP server
+internal/cxrest        firmware upload to AOS-CX over its REST API
 frontend/dist          the interface
 docs/                  this documentation (MkDocs)
 ```

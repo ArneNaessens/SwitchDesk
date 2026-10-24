@@ -44,6 +44,10 @@ If you just turned it off, click **Collect now** to read the switch again instea
 
 **"The switch never asked this computer for the image over TFTP".** The switch can't reach this computer on UDP port 69. Check your computer's firewall (allow SwitchDesk), and any ACL or firewall between the switch's management network and you. SwitchDesk gives up after two minutes without a request, and stops the copy on the switch.
 
+**"The switch's REST API didn't answer on HTTPS" (AOS-CX).** This computer can't reach the switch on TCP 443. Allow HTTPS from your computer to the switch's management address. SwitchDesk then falls back to TFTP.
+
+**"The switch's REST API refused the login" (AOS-CX).** The SSH account needs administrator rights for uploads. On releases before 10.08, also check that `https-server rest access-mode read-write` isn't blocked by your AAA setup.
+
 **"UDP port 69 is taken".** Another TFTP server runs on this computer. Stop it while updating.
 
 **AOS-CX copy fails.** SwitchDesk uses the `mgmt` VRF when the switch is managed through its management port, and `default` otherwise. Check that the switch can reach your computer from that VRF (`ping <your-ip> vrf mgmt`).

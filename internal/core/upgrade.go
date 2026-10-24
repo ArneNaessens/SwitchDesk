@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jaba0x/switchdesk/internal/aruba"
+	"github.com/jaba0x/switchdesk/internal/cxrest"
 	"github.com/jaba0x/switchdesk/internal/firmware"
 	"github.com/jaba0x/switchdesk/internal/sshx"
 	"github.com/jaba0x/switchdesk/internal/store"
@@ -661,24 +662,31 @@ func (m *Manager) autoTick(now time.Time) {
 // Library gives the app access to the firmware library (nil if it couldn't be opened).
 func (m *Manager) Library() *firmware.Library { return m.lib }
 
-// copyImage gets the image into the spare bank. On AOS-S it is uploaded over
-// SSH (SFTP or SCP), which only needs the connection we already make to the
-// switch. That works over VPNs and zero trust access where the switch can't
-// reach this computer. TFTP, where the switch pulls the file from us, is the
-// fallback and the only method on AOS-CX.
+// copyImage gets the image into the spare bank. The image is sent from this
+// computer to the switch: over SSH (SFTP or SCP) on AOS-S, and over HTTPS to
+// the REST API on AOS-CX. That works over VPNs and zero trust access where the
+// switch can't reach this computer. TFTP, where the switch pulls the file
+// from us, is only the fallback.
 func (m *Manager) copyImage(ctx context.Context, j *Job, sw store.Switch, s *sshx.Session, f aruba.Family, spare string) error {
 	var pushErr error
+	via, tried := "SSH", false
 	if target, ok := aruba.PushTarget(f, spare); ok {
+		tried = true
 		pushErr = m.pushImage(ctx, j, sw, s, target, spare)
-		if pushErr == nil {
-			return nil
-		}
-		m.logf(j, "Upload over SSH failed: %v", pushErr)
+	} else if bank, ok := aruba.CXBank(spare); ok && f == aruba.FamilyAOSCX {
+		via, tried = "HTTPS", true
+		pushErr = m.pushImageCX(ctx, j, sw, s, bank)
+	}
+	if tried && pushErr == nil {
+		return nil
+	}
+	if pushErr != nil {
+		m.logf(j, "Upload over %s failed: %v", via, pushErr)
 		m.logf(j, "Trying TFTP instead, where the switch downloads the image from this computer")
 	}
 	err := m.tftpCopy(ctx, j, sw, s, f, spare)
 	if err != nil && pushErr != nil {
-		return fmt.Errorf("upload over SSH failed (%v), and TFTP failed too (%v)", pushErr, err)
+		return fmt.Errorf("upload over %s failed (%v), and TFTP failed too (%v)", via, pushErr, err)
 	}
 	return err
 }
@@ -734,6 +742,71 @@ func (m *Manager) pushImage(ctx context.Context, j *Job, sw store.Switch, s *ssh
 	m.logf(j, "Uploaded with %s in %s", strings.ToUpper(method), time.Since(start).Round(time.Second))
 	return nil
 }
+
+// pushImageCX uploads the image through the AOS-CX REST API. AOS-CX has no
+// SFTP/SCP server, and HTTPS goes from this computer to the switch like SSH
+// does, so it works where the switch can't reach this computer.
+func (m *Manager) pushImageCX(ctx context.Context, j *Job, sw store.Switch, s *sshx.Session, bank string) error {
+	p, err := m.lib.Path(j.Image)
+	if err != nil {
+		return err
+	}
+	file, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	cred, err := m.st.Credential(sw.CredentialID)
+	if err != nil {
+		return err
+	}
+	vrf := m.vrfFor(sw, aruba.FamilyAOSCX)
+	st, err := aruba.EnableHTTPS(ctx, s, vrf)
+	if cmds := aruba.HTTPSRestoreCommands(st); len(cmds) > 0 || err != nil {
+		m.step(j, fmt.Sprintf("Turning on the web server for the upload (https-server vrf %s)", vrf))
+	}
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cmds := aruba.HTTPSRestoreCommands(st); len(cmds) > 0 {
+			rctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := aruba.RestoreHTTPS(rctx, s, st); err != nil {
+				m.logf(j, "Couldn't restore the web server settings: %v. Run these on the switch: %s", err, strings.Join(cmds, "; "))
+			} else {
+				m.logf(j, "Restored the previous settings: %s", strings.Join(cmds, "; "))
+			}
+		}
+	}()
+
+	m.step(j, fmt.Sprintf("Uploading %s (%s) to the %s bank over HTTPS", j.Image, humanBytes(info.Size()), bank))
+	start := time.Now()
+	base := "https://" + net.JoinHostPort(sw.Host, cxHTTPSPort)
+	err = cxPush(ctx, base, cred.Username, cred.Password, bank, j.Image, file, info.Size(), func(sent, total int64) {
+		if total > 0 {
+			m.update(j, func(j *Job) { j.Progress = float64(sent) / float64(total) })
+		}
+	})
+	if err != nil {
+		if errors.Is(err, cxrest.ErrNoREST) {
+			err = fmt.Errorf("%w. Check that this computer can reach %s on TCP 443", err, sw.Host)
+		}
+		return err
+	}
+	m.logf(j, "Uploaded over HTTPS in %s; the switch checked the image", time.Since(start).Round(time.Second))
+	return nil
+}
+
+// swapped out in tests
+var (
+	cxPush      = cxrest.Push
+	cxHTTPSPort = "443"
+)
 
 // upload is swapped out in tests.
 var upload = sshx.Upload
