@@ -1,4 +1,5 @@
 // same setting as the app (see main.go)
+//
 //go:debug x509negativeserial=1
 package cxrest
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Instant On switches managed from the cloud can be added. They have no SSH, so SwitchDesk reads them from the Instant On portal with your Instant On account. In **Add switch**, pick **Instant On cloud**, sign in, and choose switches from every site the account can see.
+- They show online/offline status, ports with PoE draw and loops, portal alerts, firmware status and PoE budget. The devices on their ports put them on the network map.
+- Instant On accounts are kept with your other credentials, encrypted, and move with an export.
+- The map merges a link reported from both ends even when one end doesn't name its port.
+
 ## 0.5.3
 
 - The network map no longer draws links between branches that are only connected through routers. A neighbor is now matched to a switch by its chassis MAC first. A matching IP address or name only counts if the MAC agrees, or if the other switch reports the link back. Branches that reuse the same private subnets used to get false links this way.

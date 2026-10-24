@@ -43,8 +43,9 @@ type Manager struct {
 	locks  map[string]*sync.Mutex
 	active int
 
-	lib *firmware.Library
-	up  upgrader
+	lib   *firmware.Library
+	up    upgrader
+	cloud cloudState
 
 	queue chan string
 	ctx   context.Context
@@ -163,6 +164,10 @@ func (m *Manager) pingAll() {
 }
 
 func (m *Manager) ping(sw store.Switch) {
+	if sw.Cloud != nil {
+		m.cloudRead(sw, false)
+		return
+	}
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port)), 3*time.Second)
 	lat := int(time.Since(start).Milliseconds())
@@ -294,6 +299,9 @@ func (m *Manager) worker() {
 }
 
 func (m *Manager) connect(ctx context.Context, sw store.Switch) (*sshx.Session, error) {
+	if sw.Cloud != nil {
+		return nil, ErrCloudOnly
+	}
 	cred, err := m.st.Credential(sw.CredentialID)
 	if err != nil {
 		return nil, err
@@ -323,6 +331,10 @@ func (m *Manager) collect(id string) {
 	l := m.lock(id)
 	l.Lock()
 	defer l.Unlock()
+	if sw.Cloud != nil {
+		m.cloudRead(sw, true)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(m.ctx, 4*time.Minute)
 	defer cancel()
@@ -691,6 +703,9 @@ func (m *Manager) ApplyVLAN(id string, ch aruba.VLANChange) (aruba.ApplyResult, 
 
 // TestConnection is used by the "Add switch" dialog.
 func (m *Manager) TestConnection(sw store.Switch) (string, error) {
+	if sw.Cloud != nil {
+		return "", ErrCloudOnly
+	}
 	if sw.Port == 0 {
 		sw.Port = 22
 	}

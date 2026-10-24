@@ -331,12 +331,15 @@ func (s *Store) Import(src, pass, mode string) (ImportResult, error) {
 		for _, sw := range b.d.Switches {
 			dup := false
 			for _, o := range s.d.Switches {
-				if strings.EqualFold(o.Host, sw.Host) && o.Port == sw.Port {
-					dup = true
+				switch {
+				case sw.Cloud != nil && o.Cloud != nil:
+					dup = dup || strings.EqualFold(o.Cloud.DeviceID, sw.Cloud.DeviceID)
+				case sw.Cloud == nil && o.Cloud == nil:
+					dup = dup || (strings.EqualFold(o.Host, sw.Host) && o.Port == sw.Port)
 				}
 			}
 			if dup {
-				res.Skipped = append(res.Skipped, sw.Host+" is already here")
+				res.Skipped = append(res.Skipped, firstNonEmpty(sw.Name, sw.Host)+" is already here")
 				continue
 			}
 			oldID := sw.ID

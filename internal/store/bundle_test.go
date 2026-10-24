@@ -107,3 +107,41 @@ func TestCopyAndRemoveData(t *testing.T) {
 		t.Fatal("old data still there")
 	}
 }
+
+// Instant On accounts and cloud switches move between PCs like any other.
+func TestExportImportInstantOn(t *testing.T) {
+	a, _ := Open(t.TempDir())
+	c, _ := a.SaveCredential(Credential{Username: "ops@example.com", Password: "pw", Kind: KindInstantOn})
+	ref := &CloudRef{SiteID: "s1", SiteName: "Vake", DeviceID: "aa:bb:cc:00:00:05"}
+	if _, err := a.SaveSwitch(Switch{Name: "VAKE-SW", CredentialID: c.ID, Cloud: ref}); err != nil {
+		t.Fatal(err)
+	}
+	// a cloud switch without an address yet doesn't clash with another one
+	if _, err := a.SaveSwitch(Switch{Name: "OTHER", CredentialID: c.ID, Cloud: &CloudRef{SiteID: "s1", DeviceID: "aa:bb:cc:00:00:06"}}); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "x.sdbak")
+	if err := a.Export(file, "correct horse", false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Open(t.TempDir())
+	if res, err := b.Import(file, "correct horse", "merge"); err != nil || res.Added != 2 {
+		t.Fatal(res, err)
+	}
+	var got Switch
+	for _, sw := range b.Switches() {
+		if sw.Name == "VAKE-SW" {
+			got = sw
+		}
+	}
+	if got.Cloud == nil || got.Cloud.DeviceID != ref.DeviceID || got.Family != aruba.FamilyInstantOn {
+		t.Fatalf("switch: %+v", got)
+	}
+	cred, err := b.Credential(got.CredentialID)
+	if err != nil || cred.Kind != KindInstantOn || cred.Password != "pw" {
+		t.Fatal("account", cred, err)
+	}
+	if res, _ := b.Import(file, "correct horse", "merge"); res.Added != 0 || len(res.Skipped) != 2 {
+		t.Fatal("second merge", res)
+	}
+}

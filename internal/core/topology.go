@@ -214,10 +214,26 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 					}
 				}
 			}
+			// a side that didn't say its port (the Instant On portal never
+			// does) still merges with a report that did
+			if _, ok := edges[key]; !ok {
+				for k, e := range edges {
+					if e.From == a && e.To == b && (e.FromPort == pa || e.FromPort == "" || pa == "") && (e.ToPort == pb || e.ToPort == "" || pb == "") {
+						key = k
+						break
+					}
+				}
+			}
 			e, ok := edges[key]
 			if !ok {
 				e = &Edge{ID: key, From: a, To: b, FromPort: pa, ToPort: pb, Up: true}
 				edges[key] = e
+			}
+			if e.FromPort == "" {
+				e.FromPort = pa
+			}
+			if e.ToPort == "" {
+				e.ToPort = pb
 			}
 			if !contains(e.Protocols, nb.Protocol) {
 				e.Protocols = append(e.Protocols, nb.Protocol)

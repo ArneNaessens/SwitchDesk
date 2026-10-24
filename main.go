@@ -1,6 +1,7 @@
 // Some switches (the Aruba 6100 among them) ship a self-signed certificate
 // with a negative serial number, which Go refuses by default since 1.23.
 // The certificate is never trusted anyway; this only lets it be read.
+//
 //go:debug x509negativeserial=1
 package main
 
@@ -19,7 +20,7 @@ import (
 var assets embed.FS
 
 // Version is set at build time with -ldflags "-X main.Version=..."
-var Version = "0.5.3"
+var Version = "0.6.0"
 
 func main() {
 	app := NewApp()

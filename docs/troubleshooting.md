@@ -61,3 +61,12 @@ The custom data folder wasn't available (an unplugged disk or an unmounted share
 ## Still stuck?
 
 Ask in [Discussions](https://github.com/jaba0x/SwitchDesk/discussions) or [open an issue](https://github.com/jaba0x/SwitchDesk/issues).
+
+## Instant On switches
+
+**"Instant On login failed".** The portal didn't accept the email and password. Check them by signing in at portal.instant-on.hpe.com. If the account uses two-step verification, SwitchDesk can't sign in with it: use a separate account without it, with view-only access to your sites, and update it under **Settings → Credentials**.
+
+**"Couldn't read the Instant On portal".** The portal didn't answer, or answered in a way SwitchDesk didn't expect. The message gives the reason. The portal's API isn't documented and can change; if this persists, open an issue with the message.
+
+**A switch shows "no longer in the site's inventory".** It was removed from the site in Instant On, or moved to another site. Remove it from SwitchDesk and add it again from the right site.
+

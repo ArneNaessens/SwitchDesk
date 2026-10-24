@@ -101,12 +101,26 @@ password manager`;
   topoNodes.push({ id: "ext:ap2", label: "ap-meeting", kind: "ap", host: "10.10.40.5", online: true });
   const E = (from, fp, to, tp, extra = {}) => ({ id: from + fp + to, from, to, fromPort: fp, toPort: tp, protocols: ["lldp"], up: true, ...extra });
   const topo = { nodes: topoNodes, edges: [E("core", "1/1/1", "agg1", "1/1/25"), E("core", "1/1/2", "agg1", "1/1/26"), E("core", "1/1/3", "acc1", "49"), E("agg1", "1/1/27", "acc1", "50", { blocking: true }), E("core", "1/1/4", "acc2", "49"), E("agg1", "1/1/28", "acc3", "25"), E("core", "1/1/5", "acc4", "49", { up: false }), E("agg1", "1/1/20", "io1", "25"), E("core", "1/1/24", "ext:fw", "port3"), E("acc1", "12", "ext:ap", "eth0"), E("acc2", "9", "ext:ap2", "eth0")] };
-  const detail = (id) => ({ ...views.find((v) => v.id === id), snapshot: id === "acc4" ? null : snap, backups: [{ name: "20261023-210400.cfg", at: mins(4), size: 2400 }, { name: "20261019-081200.cfg", at: mins(6000), size: 2300 }] });
+  const io = views.find((v) => v.id === "io1");
+  Object.assign(io, { port: 0, family: "instant-on", credentialId: "c2", site: "Office", cloud: { siteId: "s1", siteName: "Office", deviceId: "94:60:d5:12:34:56" } });
+  io.status.latencyMs = 0;
+  io.issues.splice(0, io.issues.length, { switchId: "io1", switchName: io.name, severity: "critical", category: "Spanning tree", title: "Loop detected", detail: "Ports: 14. Find the looped cable or device on these ports." }, { switchId: "io1", switchName: io.name, severity: "info", category: "Firmware", title: "Firmware update available", detail: "Running 1.0.7.0. Instant On updates are installed from the Instant On app or portal." });
+  io.worst = "critical";
+  const ioPorts = sws[6].p.map((p, i) => ({ ...p, speed: p.up ? "1G" : "", type: i >= 24 ? "SFP" : "", loop: i === 13, poeMw: i < 8 && p.up ? 4200 + i * 300 : 0, uplink: i === 24 }));
+  const ioSnap = { family: "instant-on", collectedAt: mins(1), facts: { hostname: "office-1930", model: "JL682A", serial: "CN12KLM0QX", baseMac: "94:60:d5:12:34:56", software: "1.0.7.0", uptime: "41 days, 3h 12m", cpu: -1, memory: -1 },
+    stp: { known: true, enabled: true, mode: "RSTP", bridgePriority: "32768", bridgeMac: "94:60:d5:12:34:56", isRoot: false, ports: [] }, security: {}, ports: ioPorts,
+    neighbors: [{ protocol: "cloud", localPort: "25", sysName: "agg-cx-a", chassisId: "38:21:c7:00:00:02", capabilities: "Bridge" }, { protocol: "cloud", localPort: "3", sysName: "AP-Reception", chassisId: "94:60:d5:aa:00:01", description: "AP22", capabilities: "WLAN" }],
+    cloud: { site: "Office", health: "warning", upToDate: false, firmware: "1.0.7.0", clients: 17, poeUsedW: 41.6, poeBudgetW: 195, alerts: [{ severity: "major", type: "loopDetected", text: "Loop detected (port 14)" }] }, errors: [] };
+  const detail = (id) => ({ ...views.find((v) => v.id === id), snapshot: id === "acc4" ? null : id === "io1" ? ioSnap : snap, backups: [{ name: "20261023-210400.cfg", at: mins(4), size: 2400 }, { name: "20261019-081200.cfg", at: mins(6000), size: 2300 }] });
   window.go = { main: { App: {
     Platform: async () => "darwin", Version: async () => "0.3.0",
     GetDashboard: async () => dash, GetSwitch: async (id) => detail(id), GetTopology: async () => topo, SaveLayout: async () => {},
     GetSettings: async () => ({ firmwareAuto: "install", windowStart: "02:00", windowEnd: "05:00", pingInterval: 30, collectInterval: 15, parallel: 4, keepBackups: 20, cpuWarn: 80, memWarn: 90 }),
-    Credentials: async () => [{ id: "c1", name: "Network admins", username: "admin" }],
+    Credentials: async () => [{ id: "c1", name: "Network admins", username: "admin" }, { id: "c2", name: "noc@example.ge", username: "noc@example.ge", kind: "instanton" }],
+    DiscoverCloud: async () => { await new Promise((r) => setTimeout(r, 400)); return [
+      { id: "s1", name: "Office", switches: [{ deviceId: "94:60:d5:12:34:56", name: "office-1930", model: "JL682A", ip: "10.10.2.5", online: true, ports: 28, addedAs: "io1" }, { deviceId: "94:60:d5:12:34:57", name: "office-1930-b", model: "JL682A", ip: "10.10.2.6", online: true, ports: 28 }] },
+      { id: "s2", name: "Warehouse Rustavi", switches: [{ deviceId: "94:60:d5:22:00:01", name: "wh-1960-core", model: "JL808A", ip: "192.168.50.2", online: true, ports: 28 }, { deviceId: "94:60:d5:22:00:02", name: "wh-1830-dock", model: "JL812A", ip: "192.168.50.3", online: false, ports: 10 }] }]; },
+    AddCloud: async (cid, picks) => picks.length,
     VLANOverview: async () => views.filter((v) => v.summary?.ports?.length).map((v, i) => ({ id: v.id, name: v.name, online: true, vlans: vlans.filter((x, j) => (i + j) % 4 !== 3).map((x) => (v.id === "io1" && x.id === 30 ? { ...x, name: "VOIP" } : x)) })),
     GetBackup: async () => cfg.replace("aaa authentication ssh login radius local\n", ""),
     PreviewVLAN: async (id, ch) => ["configure terminal", `vlan ${ch.id}`, ch.name ? `name "${ch.name}"` : null, ch.addUntagged?.length ? "untagged " + ch.addUntagged.join(",") : null, ch.addTagged?.length ? "tagged " + ch.addTagged.join(",") : null, "exit", "end", ch.save ? "write memory" : null].filter(Boolean),

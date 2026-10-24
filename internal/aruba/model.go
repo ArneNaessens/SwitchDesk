@@ -96,6 +96,10 @@ type Port struct {
 	VLAN        string `json:"vlan"`
 	Description string `json:"description"`
 	Type        string `json:"type"`
+	// filled from the Instant On portal
+	PoEmW  int  `json:"poeMw,omitempty"`
+	Loop   bool `json:"loop,omitempty"`
+	Uplink bool `json:"uplink,omitempty"`
 }
 
 type Neighbor struct {
@@ -139,4 +143,24 @@ type Snapshot struct {
 	Duration      string            `json:"duration"`
 	Errors        []string          `json:"errors"`
 	Banks         Banks             `json:"banks"`
+	Cloud         *CloudInfo        `json:"cloud,omitempty"` // Instant On switches read from the portal
+}
+
+// CloudInfo is what the Instant On portal adds for a switch it manages.
+type CloudInfo struct {
+	Site       string       `json:"site"`
+	Health     string       `json:"health"` // good, warning, critical, none
+	UpToDate   *bool        `json:"upToDate,omitempty"`
+	Firmware   string       `json:"firmware"`
+	Clients    int          `json:"clients"`
+	PoEUsedW   float64      `json:"poeUsedW"`
+	PoEBudgetW float64      `json:"poeBudgetW"`
+	Alerts     []CloudAlert `json:"alerts"`
+}
+
+type CloudAlert struct {
+	Severity string    `json:"severity"` // major, minor, info
+	Type     string    `json:"type"`
+	Text     string    `json:"text"`
+	Raised   time.Time `json:"raised"`
 }

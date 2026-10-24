@@ -32,6 +32,15 @@ type Switch struct {
 	HostKey      string       `json:"hostKey"`
 	Disabled     bool         `json:"disabled"` // paused: not polled, not read, no alerts
 	CreatedAt    time.Time    `json:"createdAt"`
+	// Cloud is set for Instant On switches read from the portal instead of SSH.
+	// CredentialID then points to an Instant On account.
+	Cloud *CloudRef `json:"cloud,omitempty"`
+}
+
+type CloudRef struct {
+	SiteID   string `json:"siteId"`
+	SiteName string `json:"siteName"`
+	DeviceID string `json:"deviceId"` // the device MAC the portal uses as its id
 }
 
 type Credential struct {
@@ -39,7 +48,10 @@ type Credential struct {
 	Name     string `json:"name"`
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"` // encrypted on disk, never sent to the UI
+	Kind     string `json:"kind,omitempty"`     // "" for SSH, "instanton" for an Instant On portal account
 }
+
+const KindInstantOn = "instanton"
 
 type Settings struct {
 	PingInterval    int  `json:"pingInterval"`    // seconds
@@ -220,18 +232,30 @@ func (s *Store) SaveSwitch(sw Switch) (Switch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sw.Host = strings.TrimSpace(sw.Host)
-	if sw.Host == "" {
-		return sw, errors.New("host is required")
-	}
-	if sw.Port == 0 {
-		sw.Port = 22
-	}
-	if sw.Family == "" {
-		sw.Family = aruba.FamilyAuto
-	}
-	for _, o := range s.d.Switches {
-		if o.ID != sw.ID && strings.EqualFold(o.Host, sw.Host) && o.Port == sw.Port {
-			return sw, fmt.Errorf("%s is already in the inventory", sw.Host)
+	if sw.Cloud != nil {
+		if sw.Cloud.SiteID == "" || sw.Cloud.DeviceID == "" {
+			return sw, errors.New("pick the Instant On site and switch")
+		}
+		sw.Family, sw.Port, sw.HostKey = aruba.FamilyInstantOn, 0, ""
+		for _, o := range s.d.Switches {
+			if o.ID != sw.ID && o.Cloud != nil && strings.EqualFold(o.Cloud.DeviceID, sw.Cloud.DeviceID) {
+				return sw, fmt.Errorf("%s is already in the inventory", firstNonEmpty(o.Name, sw.Name, sw.Cloud.DeviceID))
+			}
+		}
+	} else {
+		if sw.Host == "" {
+			return sw, errors.New("host is required")
+		}
+		if sw.Port == 0 {
+			sw.Port = 22
+		}
+		if sw.Family == "" {
+			sw.Family = aruba.FamilyAuto
+		}
+		for _, o := range s.d.Switches {
+			if o.ID != sw.ID && o.Cloud == nil && strings.EqualFold(o.Host, sw.Host) && o.Port == sw.Port {
+				return sw, fmt.Errorf("%s is already in the inventory", sw.Host)
+			}
 		}
 	}
 	if sw.ID == "" {
@@ -257,6 +281,18 @@ func (s *Store) SaveSwitch(sw Switch) (Switch, error) {
 		}
 	}
 	return sw, s.saveLocked()
+}
+
+// SetCloudHost records the address the Instant On portal reports for a switch.
+func (s *Store) SetCloudHost(id, host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, o := range s.d.Switches {
+		if o.ID == id && o.Cloud != nil && o.Host != host {
+			s.d.Switches[i].Host = host
+			s.saveLocked()
+		}
+	}
 }
 
 func (s *Store) SetHostKey(id, key string) {

@@ -209,6 +209,18 @@ func (a *App) SetDisabled(ids []string, disabled bool) error {
 
 func (a *App) TestSwitch(sw store.Switch) (string, error) { return a.mgr.TestConnection(sw) }
 
+// DiscoverCloud lists the switches on an Instant On account's sites.
+func (a *App) DiscoverCloud(credentialID string) ([]core.CloudSite, error) {
+	return a.mgr.DiscoverCloud(credentialID)
+}
+
+// AddCloud adds Instant On switches picked from DiscoverCloud.
+func (a *App) AddCloud(credentialID string, picks []core.CloudPick) (int, error) {
+	n, err := a.mgr.AddCloud(credentialID, picks)
+	a.emit("")
+	return n, err
+}
+
 func (a *App) Refresh(id string) { a.mgr.Enqueue(id) }
 
 func (a *App) RefreshAll() { a.mgr.RefreshAll() }

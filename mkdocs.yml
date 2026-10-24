@@ -84,6 +84,7 @@ nav:
   - Using SwitchDesk:
       - Dashboard and problems: dashboard.md
       - Switches: switches.md
+      - Instant On switches: instant-on.md
       - VLANs: vlans.md
       - Network map: network-map.md
       - Firmware updates: firmware.md

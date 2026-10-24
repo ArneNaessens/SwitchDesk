@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.5.3-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.6.0-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -88,9 +88,9 @@ HPE doesn't offer firmware downloads without signing in, so the library is fille
 |---|---|---|
 | AOS-CX | 6000, 6100, 6200, 6300, 6400, 8xxx | Full |
 | AOS-S / ProCurve | 2530, 2540, 2930F/M, 3810, 5400R | Full |
-| Instant On | 1830, 1930, 1960 | Reachability and whatever the CLI exposes. VLANs stay in the Instant On portal. |
+| Instant On | 1830, 1930, 1960 | Read from the Instant On portal with your Instant On account: status, ports, PoE, loops, alerts and neighbors for the map. Changes stay in the Instant On app. |
 
-The only thing the switches need is SSH, plus LLDP if you want the map.
+AOS-CX and AOS-S switches only need SSH, plus LLDP if you want the map. Instant On switches need nothing on the switch: SwitchDesk reads them from the Instant On portal. The account needs two-step verification turned off, so a separate view-only account works best.
 
 ## Install
 
@@ -172,6 +172,7 @@ internal/core    polling, problem rules, network map
 internal/store     inventory, encrypted credentials, snapshots, config copies
 internal/firmware  image library, version matching, built-in TFTP server
 internal/cxrest    firmware upload to AOS-CX over its REST API
+internal/instanton Instant On portal sign-in and reads
 ```
 
 Parsers are tested against sample output from both AOS-S and AOS-CX. If a switch prints something they misread, the **Raw output** tab shows exactly what came back, and that makes a good test case.

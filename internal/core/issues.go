@@ -45,7 +45,13 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 		out = append(out, Issue{SwitchID: sw.ID, SwitchName: name, Severity: sev, Category: cat, Title: title, Detail: detail})
 	}
 
-	if st.Checked && !st.Online {
+	if st.Checked && !st.Online && sw.Cloud != nil {
+		d := st.PingError
+		if !st.Since.IsZero() {
+			d += " since " + st.Since.Format("Jan 2 15:04")
+		}
+		add(Critical, "Reachability", "Switch is offline", d)
+	} else if st.Checked && !st.Online {
 		d := "No answer on TCP " + fmt.Sprint(sw.Port)
 		if !st.Since.IsZero() {
 			d += " since " + st.Since.Format("Jan 2 15:04")
@@ -58,13 +64,49 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 	if st.HostKeyChanged {
 		add(Critical, "SSH", "SSH host key changed", "The switch presented a different host key than before. If the switch was replaced or reset, trust the new key from the switch page.")
 	}
-	if st.AuthFailed {
+	if st.AuthFailed && sw.Cloud != nil {
+		add(Critical, "Instant On", "Instant On login failed", st.CollectError)
+	} else if st.CollectError != "" && sw.Cloud != nil {
+		add(Warning, "Instant On", "Couldn't read the Instant On portal", st.CollectError)
+	} else if st.AuthFailed {
 		add(Critical, "SSH", "SSH login failed", st.CollectError)
 	} else if st.CollectError != "" && !st.HostKeyChanged && st.Online {
 		add(Warning, "SSH", "Data collection failed", st.CollectError)
 	}
 	if snap == nil || snap.CollectedAt.IsZero() {
 		return out
+	}
+
+	if c := snap.Cloud; c != nil {
+		for _, a := range c.Alerts {
+			sev := Info
+			switch a.Severity {
+			case "major":
+				sev = Critical
+			case "minor":
+				sev = Warning
+			}
+			d := "Reported by the Instant On portal"
+			if !a.Raised.IsZero() {
+				d += " since " + a.Raised.Format("Jan 2 15:04")
+			}
+			add(sev, "Instant On", a.Text, d)
+		}
+		if c.UpToDate != nil && !*c.UpToDate {
+			add(Info, "Firmware", "Firmware update available", "Running "+orDash(snap.Facts.Software)+". Instant On updates are installed from the Instant On app or portal.")
+		}
+		if c.PoEBudgetW > 0 && c.PoEUsedW >= c.PoEBudgetW*0.9 {
+			add(Warning, "Health", fmt.Sprintf("PoE budget nearly used: %.0f of %.0f W", c.PoEUsedW, c.PoEBudgetW), "New PoE devices may not get power.")
+		}
+	}
+	var loops []string
+	for _, p := range snap.Ports {
+		if p.Loop {
+			loops = append(loops, p.Name)
+		}
+	}
+	if len(loops) > 0 {
+		add(Critical, "Spanning tree", "Loop detected", "Ports: "+strings.Join(loops, ", ")+". Find the looped cable or device on these ports.")
 	}
 
 	// spanning tree
