@@ -132,7 +132,7 @@ The **build** workflow publishes a release with both downloads attached. Push a 
 
 1. **Add a switch** with its address and credentials. **Test connection** shows the hostname and switch family before you save.
 2. **Add many** takes one address per line, `name, address` pairs, or ranges such as `10.0.1.20-10.0.1.40`.
-3. The first read starts right away. After that, reachability is checked every 30 seconds and each switch is re-read every 15 minutes. Both are adjustable in Settings.
+3. The first read starts right away. After that, each switch's SSH port is checked every 30 seconds and each switch is re-read every 15 minutes. In Settings you can change both, check with ping instead, or turn the checks off.
 
 ## Your data
 

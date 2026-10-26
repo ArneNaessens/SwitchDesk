@@ -46,7 +46,9 @@ func (m *Manager) webRead(sw store.Switch) {
 	ctx, cancel := context.WithTimeout(m.ctx, 2*time.Minute)
 	defer cancel()
 	c := webClient(sw)
-	if err := c.Login(ctx, cred.Username, cred.Password); err != nil {
+	err = c.Login(ctx, cred.Username, cred.Password)
+	m.readReach(sw.ID, err)
+	if err != nil {
 		fail(err)
 		return
 	}

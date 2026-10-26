@@ -56,14 +56,25 @@ type Credential struct {
 
 const KindInstantOn = "instanton"
 
+// How SwitchDesk checks whether a switch is up between reads.
+const (
+	CheckPort = "port" // TCP connect to the switch's SSH (or web) port
+	CheckPing = "ping" // ICMP echo through the system ping command
+	CheckOff  = "off"  // no background checks; status comes from reads
+)
+
 type Settings struct {
-	PingInterval    int  `json:"pingInterval"`    // seconds
-	CollectInterval int  `json:"collectInterval"` // minutes, 0 = manual only
-	Parallel        int  `json:"parallel"`
-	KeepBackups     int  `json:"keepBackups"`
-	CPUWarn         int  `json:"cpuWarn"`
-	MemWarn         int  `json:"memWarn"`
-	IgnoreSNMP      bool `json:"ignoreSnmp"`
+	// CheckMethod is CheckPort, CheckPing or CheckOff. A port check opens a
+	// TCP connection to port 22 each time, which switches log as an SSH
+	// connection, so busy networks may prefer ping or off.
+	CheckMethod     string `json:"checkMethod"`
+	PingInterval    int    `json:"pingInterval"`    // seconds
+	CollectInterval int    `json:"collectInterval"` // minutes, 0 = manual only
+	Parallel        int    `json:"parallel"`
+	KeepBackups     int    `json:"keepBackups"`
+	CPUWarn         int    `json:"cpuWarn"`
+	MemWarn         int    `json:"memWarn"`
+	IgnoreSNMP      bool   `json:"ignoreSnmp"`
 	// Firmware: "off", "stage" (copy to the spare bank only) or "install"
 	// (copy, then reboot inside the maintenance window).
 	FirmwareAuto string `json:"firmwareAuto"`
@@ -72,7 +83,7 @@ type Settings struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{PingInterval: 30, CollectInterval: 15, Parallel: 4, KeepBackups: 20, CPUWarn: 80, MemWarn: 90, FirmwareAuto: "off", WindowStart: "02:00", WindowEnd: "05:00"}
+	return Settings{CheckMethod: CheckPort, PingInterval: 30, CollectInterval: 15, Parallel: 4, KeepBackups: 20, CPUWarn: 80, MemWarn: 90, FirmwareAuto: "off", WindowStart: "02:00", WindowEnd: "05:00"}
 }
 
 type Point struct {
@@ -137,6 +148,7 @@ func Open(dir string) (*Store, error) {
 		s.d.Layout = map[string]Point{}
 	}
 	def := DefaultSettings()
+	s.d.Settings.CheckMethod = normCheckMethod(s.d.Settings.CheckMethod)
 	if s.d.Settings.PingInterval < 5 {
 		s.d.Settings.PingInterval = def.PingInterval
 	}
@@ -457,6 +469,7 @@ func (s *Store) Settings() Settings {
 func (s *Store) SaveSettings(v Settings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	v.CheckMethod = normCheckMethod(v.CheckMethod)
 	if v.PingInterval < 5 {
 		v.PingInterval = 5
 	}
@@ -481,6 +494,16 @@ func (s *Store) SaveSettings(v Settings) error {
 	}
 	s.d.Settings = v
 	return s.saveLocked()
+}
+
+// normCheckMethod maps unknown or missing values (settings saved by older
+// versions) to the port check, which is what those versions did.
+func normCheckMethod(m string) string {
+	switch m {
+	case CheckPort, CheckPing, CheckOff:
+		return m
+	}
+	return CheckPort
 }
 
 func (s *Store) Layout() map[string]Point {

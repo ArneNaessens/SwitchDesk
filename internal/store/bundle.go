@@ -297,6 +297,7 @@ func (s *Store) Import(src, pass, mode string) (ImportResult, error) {
 		s.d.Switches = b.d.Switches
 		s.d.Credentials = creds
 		s.d.Settings = b.d.Settings
+		s.d.Settings.CheckMethod = normCheckMethod(s.d.Settings.CheckMethod)
 		s.d.Layout = b.d.Layout
 		if s.d.Layout == nil {
 			s.d.Layout = map[string]Point{}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jaba0x/switchdesk/internal/aruba"
 	"github.com/jaba0x/switchdesk/internal/firmware"
+	"github.com/jaba0x/switchdesk/internal/ionlocal"
 	"github.com/jaba0x/switchdesk/internal/sshx"
 	"github.com/jaba0x/switchdesk/internal/store"
 )
@@ -134,6 +135,9 @@ func (m *Manager) pingLoop() {
 	m.pingAll()
 	for {
 		iv := time.Duration(m.st.Settings().PingInterval) * time.Second
+		if m.st.Settings().CheckMethod == store.CheckOff {
+			iv = 30 * time.Second // only to notice when checks are turned back on
+		}
 		select {
 		case <-m.ctx.Done():
 			return
@@ -144,6 +148,9 @@ func (m *Manager) pingLoop() {
 }
 
 func (m *Manager) pingAll() {
+	if m.st.Settings().CheckMethod == store.CheckOff {
+		return
+	}
 	sws := m.st.Switches()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 32)
@@ -168,19 +175,38 @@ func (m *Manager) ping(sw store.Switch) {
 		m.cloudRead(sw, false)
 		return
 	}
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port)), 3*time.Second)
-	lat := int(time.Since(start).Milliseconds())
-	if err == nil {
-		conn.Close()
+	var lat int
+	var err error
+	switch m.st.Settings().CheckMethod {
+	case store.CheckOff:
+		return
+	case store.CheckPing:
+		lat, err = icmpPing(m.ctx, sw.Host, 3*time.Second)
+	default:
+		start := time.Now()
+		var conn net.Conn
+		conn, err = net.DialTimeout("tcp", net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port)), 3*time.Second)
+		lat = int(time.Since(start).Milliseconds())
+		if err == nil {
+			conn.Close()
+		}
 	}
+	// came back: refresh data right away
+	if m.setReach(sw.ID, err == nil, lat, err) {
+		m.Enqueue(sw.ID)
+	}
+}
+
+// setReach records a switch as online or offline and reports whether it just
+// came back.
+func (m *Manager) setReach(id string, online bool, lat int, err error) bool {
 	m.mu.Lock()
-	st, ok := m.status[sw.ID]
+	defer m.mu.Unlock()
+	st, ok := m.status[id]
 	if !ok {
 		st = &Status{}
-		m.status[sw.ID] = st
+		m.status[id] = st
 	}
-	online := err == nil
 	if !st.Checked || st.Online != online {
 		st.Since = time.Now()
 	}
@@ -191,10 +217,25 @@ func (m *Manager) ping(sw store.Switch) {
 	} else {
 		st.LatencyMs, st.PingError = 0, shortErr(err)
 	}
-	m.mu.Unlock()
-	// came back: refresh data right away
-	if online && wasOffline {
-		m.Enqueue(sw.ID)
+	return online && wasOffline
+}
+
+// readReach updates online/offline from a read when background checks are
+// off, so the dashboard still shows something. A login that gets through
+// means online; only a network error means offline, not a wrong password.
+func (m *Manager) readReach(id string, err error) {
+	if m.st.Settings().CheckMethod != store.CheckOff {
+		return
+	}
+	var ne net.Error
+	var oe *net.OpError
+	switch {
+	case err == nil, errors.Is(err, sshx.ErrHostKeyMismatch), errors.Is(err, ionlocal.ErrLogin),
+		strings.Contains(err.Error(), "unable to authenticate"):
+		// the switch answered, it just didn't let us in
+		m.setReach(id, true, 0, nil)
+	case errors.As(err, &oe), errors.As(err, &ne):
+		m.setReach(id, false, 0, err)
 	}
 }
 
@@ -232,7 +273,9 @@ func (m *Manager) scheduleLoop() {
 			for _, sw := range m.st.Switches() {
 				st := m.stat(sw.ID)
 				m.mu.Lock()
-				ready := !sw.Disabled && st.Online && !st.Collecting && time.Since(st.LastCollect) > due && !st.HostKeyChanged && !st.AuthFailed
+				// with checks off nothing marks a switch online, so read it anyway
+				up := st.Online || set.CheckMethod == store.CheckOff
+				ready := !sw.Disabled && up && !st.Collecting && time.Since(st.LastCollect) > due && !st.HostKeyChanged && !st.AuthFailed
 				m.mu.Unlock()
 				if ready {
 					m.Enqueue(sw.ID)
@@ -346,6 +389,7 @@ func (m *Manager) collect(id string) {
 	ctx, cancel := context.WithTimeout(m.ctx, 4*time.Minute)
 	defer cancel()
 	sess, err := m.connect(ctx, sw)
+	m.readReach(id, err)
 	if err != nil {
 		m.mu.Lock()
 		st.CollectError = err.Error()
@@ -387,6 +431,10 @@ func (m *Manager) collect(id string) {
 func (m *Manager) Resume(id string) {
 	sw, ok := m.st.Switch(id)
 	if !ok || sw.Disabled {
+		return
+	}
+	if m.st.Settings().CheckMethod == store.CheckOff {
+		m.Enqueue(id)
 		return
 	}
 	m.ping(sw)

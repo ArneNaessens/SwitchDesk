@@ -90,6 +90,7 @@ main { overflow: auto; position: relative; }
 .btn.danger { color: var(--crit); }
 .btn.small { height: 26px; padding: 0 9px; font-size: 13px; }
 .btn:disabled { opacity: .5; cursor: default; }
+input:disabled { opacity: .5; cursor: default; }
 .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; }
 .spin svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- New **Status check** setting under Settings → Monitoring: **SSH port** (what earlier versions did), **Ping (ICMP)** or **Off**. The SSH port check opens a connection to every switch every 30 seconds, and switches log each one as an SSH connection. Ping avoids that; Off stops background checks completely, and a switch's status then comes from its reads. Old settings keep the SSH port check.
+
 ## 0.8.3
 
 - The window opens maximised.

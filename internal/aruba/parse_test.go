@@ -500,3 +500,48 @@ func TestConfigStatusSaved(t *testing.T) {
 		}
 	}
 }
+
+// A 2530-24G (J9776A) reads like any other AOS-S switch: YA firmware, no
+// model in "show system", the model comes from the config header, and the
+// fanless chassis rejects "show system fans".
+func Test2530(t *testing.T) {
+	ver := `Image stamp:    /ws/swbuildm/rel_yakima_qaoff/code/build/lakes(swbuildm_rel_yakima_qaoff_rel_yakima)
+                Nov 30 2022 15:11:08
+                YA.16.11.0010
+                1290
+Boot Image:     Primary
+
+Boot ROM Version:    YA.15.20
+Active Boot ROM:     Primary`
+	if f := DetectFamily(ver, ""); f != FamilyAOSS {
+		t.Fatalf("family: %s", f)
+	}
+	sys := `
+ Status and Counters - General System Information
+
+  System Name        : SW-MGMT-01
+  System Contact     :
+  System Location    : Server room
+
+  MAC Age Time (sec) : 300
+
+  Software revision  : YA.16.11.0010        Base MAC Addr      : 941882-1a2b3c
+  ROM Version        : YA.15.20             Serial Number      : CN61FP1234
+
+  Up Time            : 125 days             Memory   - Total   : 46,620,672
+  CPU Util (%)       : 3                               Free    : 26,894,416
+`
+	s := Snapshot{Family: FamilyAOSS, Raw: map[string]string{
+		"version": ver, "system": sys,
+		"fans":   "                   ^\nInvalid input: fans",
+		"config": "; J9776A Configuration Editor; Created on release #YA.16.11.0010\n; Ver #14:01.4f.f8.1d.9b.3f.bf.bb.ef.7c.59.fc.6b.fb.9f.fc.ff.ff.37.ef:01\nhostname \"SW-MGMT-01\"\n",
+	}}
+	parseInto(&s)
+	f := s.Facts
+	if f.Hostname != "SW-MGMT-01" || f.Model != "J9776A" || f.Software != "YA.16.11.0010" || f.Serial != "CN61FP1234" || f.CPU != 3 || f.Memory < 0 {
+		t.Fatalf("facts: %+v", f)
+	}
+	if len(s.Env) != 0 {
+		t.Fatalf("fanless switch got env items: %+v", s.Env)
+	}
+}

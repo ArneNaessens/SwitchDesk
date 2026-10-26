@@ -380,7 +380,7 @@ function updateDetailHead() {
 function detailStatus(v) {
   if (v.disabled) return `<span class="faint">Disabled</span>`;
   if (v.status.collecting) return `<span class="faint">Collecting…</span>`;
-  if (!v.status.checked) return `<span class="faint">Checking…</span>`;
+  if (!v.status.checked) return `<span class="faint">${S.settings?.checkMethod === "off" ? "Not checked" : "Checking…"}</span>`;
   if (v.cloud) return v.status.online ? `<span class="ok">Online</span> <span class="faint">via Instant On</span>` : `<span class="bad">Offline since ${new Date(v.status.since).toLocaleString()}</span>`;
   return v.status.online ? `<span class="ok">Online</span> <span class="faint">${v.status.latencyMs} ms</span>` : `<span class="bad">Offline since ${new Date(v.status.since).toLocaleString()}</span>`;
 }
@@ -451,7 +451,7 @@ async function useWeb(ids) {
 
 function noDataYet(d) {
   return `<div class="panel"><div class="empty"><h3>No data collected yet</h3>
-    <p>${d.status.collectError ? esc(d.status.collectError) : d.status.online ? "Collection starts automatically. Use Collect now to start it immediately." : d.cloud ? "Waiting for the Instant On portal." : d.web ? "The switch isn't answering on its web port right now." : "The switch isn't answering on SSH right now."}</p>
+    <p>${d.status.collectError ? esc(d.status.collectError) : d.status.online || (!d.status.checked && S.settings?.checkMethod === "off") ? (S.settings?.collectInterval ? "Collection starts automatically. Use Collect now to start it immediately." : "Use Collect now to read it.") : d.cloud ? "Waiting for the Instant On portal." : d.web ? "The switch isn't answering on its web port right now." : "The switch isn't answering on SSH right now."}</p>
     <button class="btn" onclick="collectOne()">${ICON.refresh}Collect now</button></div></div>`;
 }
 
@@ -1183,8 +1183,13 @@ async function renderSettings() {
       ${S.creds.length ? `<table><tbody>${S.creds.map((c) => `<tr><td>${esc(c.name)}${c.kind === "instanton" ? ' <span class="faint">Instant On account</span>' : ""}</td><td class="mono">${esc(c.username)}</td><td style="text-align:right"><button class="btn small" onclick="editCred('${c.id}')">Edit</button> <button class="btn small danger" onclick="delCred('${c.id}')">Remove</button></td></tr>`).join("")}</tbody></table>` : `<div class="empty">No credentials yet. They're added when you add your first switch.</div>`}
       <div class="faint" style="padding:10px 16px;font-size:12.5px">Passwords are encrypted on this computer and never shown again.</div></section>
     <section class="panel"><h2>Monitoring</h2><div class="body">
-      <div class="row"><label class="f"><span>Reachability check every (seconds)</span><input type="number" id="pi" min="5" value="${set.pingInterval}"></label>
-        <label class="f"><span>Read switches over SSH every (minutes, 0 = only on demand)</span><input type="number" id="ci" min="0" value="${set.collectInterval}"></label></div>
+      <div class="row"><label class="f"><span>Status check</span><select id="cm" onchange="checkMethodHint()">
+          <option value="port" ${set.checkMethod === "port" ? "selected" : ""}>SSH port</option>
+          <option value="ping" ${set.checkMethod === "ping" ? "selected" : ""}>Ping (ICMP)</option>
+          <option value="off" ${set.checkMethod === "off" ? "selected" : ""}>Off</option></select></label>
+        <label class="f"><span>Check every (seconds)</span><input type="number" id="pi" min="5" value="${set.pingInterval}" ${set.checkMethod === "off" ? "disabled" : ""}></label></div>
+      <p class="faint" id="cmhint" style="font-size:12.5px;margin:-6px 0 14px">${checkMethodText(set.checkMethod)}</p>
+      <div class="row"><label class="f"><span>Read switches over SSH every (minutes, 0 = only on demand)</span><input type="number" id="ci" min="0" value="${set.collectInterval}"></label><span></span></div>
       <div class="row"><label class="f"><span>Switches read at the same time</span><input type="number" id="pa" min="1" max="16" value="${set.parallel}"></label>
         <label class="f"><span>Config copies kept per switch</span><input type="number" id="kb" min="1" value="${set.keepBackups}"></label></div>
       <div class="row"><label class="f"><span>Warn above CPU %</span><input type="number" id="cw" value="${set.cpuWarn}"></label>
@@ -1313,9 +1318,21 @@ async function openImport() {
   };
 }
 
+function checkMethodText(m) {
+  if (m === "ping") return "Pings each switch. Opens no SSH connections, but ping (ICMP) has to reach the switches.";
+  if (m === "off") return "No background checks. Online and offline only change when a switch is read, on the schedule below or with Collect now.";
+  return "Opens a connection to each switch's SSH port. Switches log every check as an SSH connection.";
+}
+
+function checkMethodHint() {
+  const m = $("#cm").value;
+  $("#cmhint").textContent = checkMethodText(m);
+  $("#pi").disabled = m === "off";
+}
+
 async function saveSettings() {
   try {
-    await call("SaveSettings", { pingInterval: +$("#pi").value, collectInterval: +$("#ci").value, parallel: +$("#pa").value, keepBackups: +$("#kb").value, cpuWarn: +$("#cw").value, memWarn: +$("#mw").value, ignoreSnmp: $("#is").checked, firmwareAuto: $("input[name=fa]:checked").value, windowStart: $("#ws").value.trim(), windowEnd: $("#we").value.trim() });
+    await call("SaveSettings", { checkMethod: $("#cm").value, pingInterval: +$("#pi").value, collectInterval: +$("#ci").value, parallel: +$("#pa").value, keepBackups: +$("#kb").value, cpuWarn: +$("#cw").value, memWarn: +$("#mw").value, ignoreSnmp: $("#is").checked, firmwareAuto: $("input[name=fa]:checked").value, windowStart: $("#ws").value.trim(), windowEnd: $("#we").value.trim() });
     S.settings = await call("GetSettings");
     toast("Settings saved");
   } catch (e) { toast(e.message, true); }
