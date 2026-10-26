@@ -33,7 +33,7 @@ It runs on macOS and Windows and keeps all data on your own computer.
 | Family | Models | Support |
 |---|---|---|
 | AOS-CX | 6000, 6100, 6200, 6300, 6400, 8xxx | Full |
-| AOS-S / ProCurve | 2530, 2540, 2930F/M, 3810, 5400R | Full |
+| AOS-S / ProCurve | 2530 (YA/YB), 2540, 2930F/M, 3810, 5400R | Full |
 | Instant On | 1830, 1930, 1960 | Read-only, through the switch's web interface (local management) or the Instant On portal (cloud management). See [Instant On switches](instant-on.md). |
 
 All the switches need is SSH, plus LLDP if you want them on the map.

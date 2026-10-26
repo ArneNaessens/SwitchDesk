@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.8.3-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.1-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -67,6 +67,13 @@ A network-wide matrix shows which switch carries which VLAN and flags names that
 
 Built from LLDP and CDP and laid out top-down from the spanning-tree root. Drag switches wherever you like and the layout is kept. Blocked links are dashed amber, down links red. Firewalls, access points and switches you don't manage get their own shapes. Phones and hosts stay hidden until you turn them on. Hover a switch to see port numbers on its links, double-click to open it.
 
+### Light on the network
+Between full reads, SwitchDesk checks that each switch is up. You choose how in Settings:
+
+- **SSH port** (the default) opens a TCP connection to port 22 and closes it straight away. It works over most VPN and zero trust setups, but the switch logs every check as an SSH connection.
+- **Ping** uses ICMP and makes no SSH connections at all. ICMP has to reach the switches for this.
+- **Off** makes no background checks. A switch's status only changes when it's read. Set the read interval to 0 too and SwitchDesk connects only when you click **Collect now**.
+
 ### Switch list
 Search by name, address, site, model or software, or by state: `offline`, `disabled`, `problem`. Words combine, so `acc offline` finds offline access switches. Press `/` to jump to the search box. Tick switches to collect, disable, enable or delete them together, or use the small buttons at the end of each row. A disabled switch keeps its last data but isn't checked, read or alerted on until you enable it again.
 
@@ -88,10 +95,12 @@ HPE doesn't offer firmware downloads without signing in, so the library is fille
 | Family | Models | Support |
 |---|---|---|
 | AOS-CX | 6000, 6100, 6200, 6300, 6400, 8xxx | Full |
-| AOS-S / ProCurve | 2530, 2540, 2930F/M, 3810, 5400R | Full |
-| Instant On | 1830, 1930, 1960 | Read-only. Local management: read through the switch's web interface with its admin login (ports, PoE, spanning tree, LLDP, VLANs, hardware, logs). Cloud management: read from the Instant On portal with your Instant On account. Changes stay on the switch's web page or in the Instant On app. |
+| AOS-S / ProCurve | 2530 (YA/YB), 2540, 2930F/M, 3810, 5400R | Full |
+| Instant On | 1830, 1930, 1960 | Read-only. Local management: read through the switch's web interface with its admin login (ports, PoE where the model has it, spanning tree, LLDP, VLANs, hardware, logs). Cloud management: read from the Instant On portal with your Instant On account. Changes stay on the switch's web page or in the Instant On app. |
 
 AOS-CX and AOS-S switches only need SSH, plus LLDP if you want the map. Instant On switches need nothing on the switch. Locally managed ones are read through their web interface; cloud-managed ones through the Instant On portal, with an account that has two-step verification turned off (a separate view-only account works best).
+
+Got a model that isn't listed, or one that reads wrong? Open an [issue](https://github.com/jaba0x/SwitchDesk/issues/new) with the model number, its firmware version and the output of `show version`. If a reading fails, include the message SwitchDesk shows; it names the command or page that went wrong.
 
 ## Install
 
