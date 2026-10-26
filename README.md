@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  A desktop app for Aruba switches. It logs in over SSH, reads every switch, and shows you what's down, what's misconfigured and how it's all wired together.
+  A desktop app for Aruba switches. It reads each switch over SSH and shows what's down, what's misconfigured and how the switches connect to each other.
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ## Why
 
-One screen for the questions you ask about a switch network every morning: is everything up, did anything change overnight, is spanning tree still sane, and which port goes where. Clicking through web UIs one switch at a time doesn't answer that, and a full NMS is a lot for a few dozen switches. SwitchDesk does the reading over plain SSH and keeps everything on your machine.
+Every morning I want to know the same things about the switch network: is everything up, did anything change overnight, is spanning tree still sane, and which port goes where. Clicking through web UIs one switch at a time is slow, and a full NMS is a lot to run for a few dozen switches. SwitchDesk reads the switches over plain SSH and keeps everything on your machine.
 
 ## Features
 
@@ -67,12 +67,8 @@ A network-wide matrix shows which switch carries which VLAN and flags names that
 
 Built from LLDP and CDP and laid out top-down from the spanning-tree root. Drag switches wherever you like and the layout is kept. Blocked links are dashed amber, down links red. Firewalls, access points and switches you don't manage get their own shapes. Phones and hosts stay hidden until you turn them on. Hover a switch to see port numbers on its links, double-click to open it.
 
-### Light on the network
-Between full reads, SwitchDesk checks that each switch is up. You choose how in Settings:
-
-- **SSH port** (the default) opens a TCP connection to port 22 and closes it straight away. It works over most VPN and zero trust setups, but the switch logs every check as an SSH connection.
-- **Ping** uses ICMP and makes no SSH connections at all. ICMP has to reach the switches for this.
-- **Off** makes no background checks. A switch's status only changes when it's read. Set the read interval to 0 too and SwitchDesk connects only when you click **Collect now**.
+### Status checks
+Between full reads, SwitchDesk checks that each switch is still up, and Settings decides how. By default it opens a TCP connection to port 22 and closes it straight away. That works over most VPN and zero trust setups, but the switch logs every check as an SSH connection, which fills the log on a busy network. Switch the check to ping and no SSH connections are made, as long as ICMP reaches the switches. Turn it off and a switch's status only changes when it's read. With the read interval at 0 as well, SwitchDesk connects only when you click **Collect now**.
 
 ### Switch list
 Search by name, address, site, model or software, or by state: `offline`, `disabled`, `problem`. Words combine, so `acc offline` finds offline access switches. Press `/` to jump to the search box. Tick switches to collect, disable, enable or delete them together, or use the small buttons at the end of each row. A disabled switch keeps its last data but isn't checked, read or alerted on until you enable it again.
@@ -86,7 +82,7 @@ On AOS-CX, which has no SFTP or SCP server, the image goes over HTTPS to the swi
 
 Only if the upload is refused does the switch pull the image from SwitchDesk over TFTP (UDP 69). For that the switch has to be able to reach your computer.
 
-HPE doesn't offer firmware downloads without signing in, so the library is filled by you: add `.swi` files you downloaded, or paste a download link from the HPE Networking Support Portal and SwitchDesk fetches it. Images are matched to switches by platform code (WC, YA, KB, FL, PL…), read from the file name or the image itself.
+HPE only offers firmware downloads after you sign in, so you fill the library yourself. Add `.swi` files you downloaded, or paste a download link from the HPE Networking Support Portal and SwitchDesk fetches it. Images are matched to switches by platform code (WC, YA, KB, FL, PL…), read from the file name or the image itself.
 
 **Automatic mode** (Settings) can copy new firmware to every switch's spare bank as soon as it lands in the library, or also install it by rebooting one switch at a time inside a maintenance window you set.
 
@@ -100,7 +96,7 @@ HPE doesn't offer firmware downloads without signing in, so the library is fille
 
 AOS-CX and AOS-S switches only need SSH, plus LLDP if you want the map. Instant On switches need nothing on the switch. Locally managed ones are read through their web interface; cloud-managed ones through the Instant On portal, with an account that has two-step verification turned off (a separate view-only account works best).
 
-Got a model that isn't listed, or one that reads wrong? Open an [issue](https://github.com/jaba0x/SwitchDesk/issues/new) with the model number, its firmware version and the output of `show version`. If a reading fails, include the message SwitchDesk shows; it names the command or page that went wrong.
+If your model isn't listed or reads wrong, open an [issue](https://github.com/jaba0x/SwitchDesk/issues/new) with the model number, its firmware version and the output of `show version`. When a reading fails, paste the message SwitchDesk shows too. It names the command or page that failed.
 
 ## Install
 
@@ -156,9 +152,9 @@ Everything stays on your computer, in one folder.
 - `snapshots/` keeps the last reading of each switch, so the app opens with data.
 - `backups/` keeps a copy of a switch's running config each time it changes.
 
-**Choosing another folder.** Settings → Data → Change lets you move the data to another disk or a synced drive, copy it there, or open a folder that already has SwitchDesk data. The key moves with the folder, so the same folder works from any computer that can reach it.
+To use another folder, go to Settings → Data → Change. You can move the data to another disk or a synced drive, copy it there, or open a folder that already has SwitchDesk data. The key moves with the folder, so the same folder works from any computer that can reach it.
 
-**Moving to another computer.** Settings → Data → Export writes a single `.sdbak` file. Passwords inside are re-encrypted with a passphrase you pick (Argon2id + AES-GCM), so the file is safe to carry around and opens on any machine. On the other computer, Import either adds the file's switches to the ones already there or replaces everything with the file's contents.
+To move to another computer, use Settings → Data → Export. It writes a single `.sdbak` file. Passwords inside are re-encrypted with a passphrase you pick (Argon2id + AES-GCM), so the file is safe to carry around and opens on any machine. On the other computer, Import either adds the file's switches to the ones already there or replaces everything with the file's contents.
 
 SSH host keys are pinned on first connect. If a switch later presents a different key, SwitchDesk stops connecting to it until you confirm on the switch page.
 
@@ -186,7 +182,7 @@ internal/instanton Instant On portal sign-in and reads
 internal/ionlocal  Instant On web interface sign-in and reads (local management)
 ```
 
-Parsers are tested against sample output from both AOS-S and AOS-CX. If a switch prints something they misread, the **Raw output** tab shows exactly what came back, and that makes a good test case.
+The parsers are tested against sample output from AOS-S and AOS-CX. When a switch prints something they misread, the **Raw output** tab shows exactly what came back. That output makes a good test case.
 
 ## Author
 
