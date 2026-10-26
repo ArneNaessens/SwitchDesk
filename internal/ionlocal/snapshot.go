@@ -2,6 +2,7 @@ package ionlocal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -26,13 +27,23 @@ func Collect(ctx context.Context, c *Client) (aruba.Snapshot, error) {
 	start := time.Now()
 	got := map[string]*Node{}
 	var errs []string
+	poe := true
 	for _, s := range sections {
 		if ctx.Err() != nil {
 			return aruba.Snapshot{}, ctx.Err()
 		}
+		if !poe && strings.HasPrefix(s, "PoE") {
+			continue
+		}
 		n, err := c.Get(ctx, s)
-		if err == ErrSession {
-			return aruba.Snapshot{}, err
+		if errors.Is(err, ErrSession) && s != "SystemGlobalSetting" {
+			// a model without this section answers like a lost session;
+			// if the switch still answers a section every model has, go on
+			if _, again := c.Get(ctx, "SystemGlobalSetting"); again != nil {
+				return aruba.Snapshot{}, fmt.Errorf("%w: %v", ErrSession, err)
+			}
+		} else if errors.Is(err, ErrSession) {
+			return aruba.Snapshot{}, fmt.Errorf("%w right after signing in: %v", ErrSession, err)
 		}
 		if err != nil {
 			if s == "SystemGlobalSetting" || s == "Ports" {
@@ -42,6 +53,10 @@ func Collect(ctx context.Context, c *Client) (aruba.Snapshot, error) {
 			continue
 		}
 		got[s] = n
+		if s == "SystemGlobalSetting" {
+			// models without PoE, like the 8-port JL680A, have no PoE sections
+			poe = strings.Contains(strings.ToLower(n.Text("systemDescription")), "poe")
+		}
 	}
 	snap := Build(got, time.Now())
 	snap.Errors = append(snap.Errors, errs...)

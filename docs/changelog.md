@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1
+
+- Pages use the full width of the window. The switch list no longer scrolls sideways on wide screens.
+- Instant On 1930 (web interface): a reading no longer stops with "the web session has ended" when the switch answers a page it doesn't have, such as PoE on the 8-port JL680A. SwitchDesk checks the session is still alive and carries on. PoE isn't read from models without PoE.
+- Instant On: the sign-in also works when the switch sets its session cookie without a path.
+- When a session really does end, the message now says which page was refused and what the switch said.
+
 ## 0.9.0
 
 - New **Status check** setting under Settings → Monitoring: **SSH port** (what earlier versions did), **Ping (ICMP)** or **Off**. The SSH port check opens a connection to every switch every 30 seconds, and switches log each one as an SSH connection. Ping avoids that; Off stops background checks completely, and a switch's status then comes from its reads. Old settings keep the SSH port check.

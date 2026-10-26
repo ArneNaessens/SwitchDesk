@@ -69,7 +69,7 @@ a:hover { text-decoration: underline; }
 .side-foot { margin-top: auto; padding: 8px 10px 0; color: var(--faint); font-size: 12px; }
 
 main { overflow: auto; position: relative; }
-.page { padding: calc(var(--top) + 22px) 28px 40px; max-width: 1500px; }
+.page { padding: calc(var(--top) + 22px) 28px 40px; }
 .page.full { max-width: none; padding: 0; height: 100%; }
 .head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; min-height: 34px; --wails-draggable: drag; }
 .head h1 { font-size: 20px; font-weight: 600; margin: 0; }

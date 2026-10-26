@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -30,6 +31,22 @@ var (
 	ErrNotLocal = errors.New("this doesn't look like an Instant On switch in local management mode")
 	ErrSession  = errors.New("the web session ended")
 )
+
+// StatusError is a refused section read. It matches ErrSession with
+// errors.Is: usually it means the session is gone.
+type StatusError struct {
+	Section, Code, Text string
+}
+
+func (e *StatusError) Error() string {
+	msg := fmt.Sprintf("the switch refused %s (code %s", e.Section, e.Code)
+	if e.Text != "" {
+		msg += ": " + e.Text
+	}
+	return msg + ")"
+}
+
+func (e *StatusError) Is(target error) bool { return target == ErrSession }
 
 type Client struct {
 	Host string // address, optionally with :port
@@ -125,6 +142,7 @@ func (c *Client) Login(ctx context.Context, user, pass string) error {
 	}
 	switch code := st.Text("statusCode"); code {
 	case "0", "10", "13": // ok; ok but weak password; ok but password expires soon
+		c.shareCookies()
 		return nil
 	case "4", "1":
 		return ErrLogin
@@ -134,6 +152,24 @@ func (c *Client) Login(ctx context.Context, user, pass string) error {
 		return fmt.Errorf("the switch wants this account's password changed first; sign in to its web page once and set a new one")
 	default:
 		return fmt.Errorf("the switch refused the login (code %s: %s)", code, st.Text("statusString"))
+	}
+}
+
+// shareCookies makes the session cookie apply to the whole switch. A cookie
+// set without a Path belongs to the folder of the login URL (.../config/),
+// and the sections are read from the folder above it.
+func (c *Client) shareCookies() {
+	login, err := url.Parse(c.root() + c.base + "config/system.xml")
+	if err != nil || c.HTTP.Jar == nil {
+		return
+	}
+	root, _ := url.Parse(c.root() + "/")
+	var out []*http.Cookie
+	for _, k := range c.HTTP.Jar.Cookies(login) {
+		out = append(out, &http.Cookie{Name: k.Name, Value: k.Value, Path: "/"})
+	}
+	if len(out) > 0 {
+		c.HTTP.Jar.SetCookies(root, out)
 	}
 }
 
@@ -156,7 +192,9 @@ func (c *Client) Get(ctx context.Context, section string) (*Node, error) {
 	}
 	if st := n.Find("ActionStatus"); st != nil {
 		if code := st.Text("statusCode"); code == "4" || code == "3" {
-			return nil, ErrSession
+			// also what some models answer for a section they don't have,
+			// so Collect checks whether the session really ended
+			return nil, &StatusError{Section: section, Code: code, Text: st.Text("statusString")}
 		}
 	}
 	sec := n.Find(section)

@@ -175,3 +175,42 @@ func TestRealEncryptionSetting(t *testing.T) {
 		t.Fatalf("a 64-character password must fit the key: %v", err)
 	}
 }
+
+// An 8-port 1930 without PoE (JL680A): the switch refuses sections it doesn't
+// have with the same codes as a lost session, and sets its session cookie
+// without a Path. The read has to go on regardless.
+func TestModelWithoutSomeSections(t *testing.T) {
+	sw := localfake.New("admin", "secret")
+	defer sw.Close()
+	sw.CookiePath = "-"
+	sw.Sections["SystemGlobalSetting"] = strings.Replace(sw.Sections["SystemGlobalSetting"],
+		"48p Gigabit CL4 PoE 4p SFP+ 370W 1930 JL686A", "8p Gigabit 2p SFP 1930 JL680A", 1)
+	sw.Refused = map[string]string{"LoopbackDetectionList": "3", "MemoryLogTable": "4"}
+	ctx := context.Background()
+	c := New(sw.Host(), false)
+	if err := c.Login(ctx, "admin", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := Collect(ctx, c)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if !strings.HasPrefix(snap.Facts.Model, "JL680A") || len(snap.Ports) == 0 {
+		t.Fatalf("facts: %+v ports=%d", snap.Facts, len(snap.Ports))
+	}
+	for _, p := range snap.Ports {
+		if p.PoEmW != 0 {
+			t.Fatal("PoE read from a switch without PoE")
+		}
+	}
+	// a session that really ends still stops the read, with the reason
+	sw.Refused = nil
+	c2 := New(sw.Host(), false)
+	if err := c2.Login(ctx, "admin", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	c2.Logout(ctx)
+	if _, err := Collect(ctx, c2); !errors.Is(err, ErrSession) || !strings.Contains(err.Error(), "not authenticated") {
+		t.Fatalf("ended session: %v", err)
+	}
+}

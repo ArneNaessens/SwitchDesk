@@ -32,6 +32,12 @@ type Switch struct {
 	Logins   int
 	Logouts  int
 	Sections map[string]string // section name -> inner XML
+	// Refused sections answer with this status code even when signed in,
+	// like a model that doesn't have them.
+	Refused map[string]string
+	// CookiePath is the session cookie's Path; "-" leaves it out, as some
+	// firmware does.
+	CookiePath string
 }
 
 func New(user, pass string) *Switch {
@@ -89,7 +95,12 @@ func (s *Switch) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Lock()
 		body, found := s.Sections[name]
+		refused := s.Refused[name]
 		s.mu.Unlock()
+		if refused != "" {
+			fmt.Fprint(w, "<?xml version='1.0' encoding='UTF-8'?><ResponseData><ActionStatus><statusCode>"+refused+"</statusCode><statusString>Not supported</statusString></ActionStatus></ResponseData>")
+			return
+		}
 		if !found {
 			xmlOut(w, "", name, "1")
 			return
@@ -129,7 +140,13 @@ func (s *Switch) login(w http.ResponseWriter, r *http.Request) {
 	id := fmt.Sprintf("s%d", s.Logins+1)
 	s.sessions[id] = true
 	s.Logins++
-	http.SetCookie(w, &http.Cookie{Name: "session", Value: id, Path: "/", HttpOnly: true})
+	path := "/"
+	if s.CookiePath == "-" {
+		path = ""
+	} else if s.CookiePath != "" {
+		path = s.CookiePath
+	}
+	http.SetCookie(w, &http.Cookie{Name: "session", Value: id, Path: path, HttpOnly: true})
 	status("0")
 }
 
