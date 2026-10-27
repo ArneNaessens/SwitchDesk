@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -128,6 +129,52 @@ func BuildVLANCommands(f Family, c VLANChange, current []VLAN) ([]string, error)
 		cmds = append(cmds, "write memory")
 	}
 	return cmds, nil
+}
+
+// AfterChange returns the VLAN table as it should be once c has been accepted,
+// so the UI shows the change before the switch is read again. A port can only
+// be untagged in one VLAN, so adding it untagged takes it out of the others.
+func AfterChange(vlans []VLAN, c VLANChange) []VLAN {
+	without := func(ports []string, drop map[string]bool) []string {
+		var out []string
+		for _, p := range ports {
+			if !drop[p] {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	set := func(ports []string) map[string]bool {
+		m := map[string]bool{}
+		for _, p := range ports {
+			m[p] = true
+		}
+		return m
+	}
+	untagged, removed := set(c.AddUntagged), set(c.RemovePorts)
+	var out []VLAN
+	found := false
+	for _, v := range vlans {
+		if v.ID == c.ID {
+			if c.Action == "delete" {
+				continue
+			}
+			found = true
+			if c.Name != "" {
+				v.Name = c.Name
+			}
+			v.Untagged = append(without(v.Untagged, removed), c.AddUntagged...)
+			v.Tagged = append(without(v.Tagged, removed), c.AddTagged...)
+		} else {
+			v.Untagged = without(v.Untagged, untagged)
+		}
+		out = append(out, v)
+	}
+	if c.Action == "create" && !found {
+		out = append(out, VLAN{ID: c.ID, Name: c.Name, Untagged: c.AddUntagged, Tagged: c.AddTagged})
+		sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	}
+	return out
 }
 
 func memberTagged(vlans []VLAN, id int, port string) bool {

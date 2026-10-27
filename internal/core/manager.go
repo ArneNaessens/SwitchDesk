@@ -754,6 +754,17 @@ func (m *Manager) ApplyVLAN(id string, ch aruba.VLANChange) (aruba.ApplyResult, 
 	if err != nil {
 		return res, err
 	}
+	if res.OK {
+		// show the change now; the re-read below takes a while and confirms it
+		m.mu.Lock()
+		if s := m.snaps[id]; s != nil {
+			next := *s
+			next.VLANs = aruba.AfterChange(s.VLANs, ch)
+			m.snaps[id] = &next
+		}
+		m.mu.Unlock()
+		m.changed()
+	}
 	go m.Enqueue(id)
 	return res, nil
 }

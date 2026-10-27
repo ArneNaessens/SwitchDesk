@@ -1180,7 +1180,8 @@ async function renderVLANs(soft) {
       return `<td><a class="cellv ${diff ? "diff" : "has"}" data-go="#/switch/${s.id}/vlans" title="${esc(v.name)}: ${v.untagged?.length || 0} untagged, ${v.tagged?.length || 0} tagged${diff ? " (name differs)" : ""}">${n || "–"}</a></td>`;
     }).join("");
     const mism = Object.keys(names).length > 1;
-    const edit = canEdit ? `<td style="text-align:right"><button class="btn small" onclick="openNetVLAN(${id})">Edit</button></td>` : "";
+    const del = id !== 1 && data.some((s) => s.editable && s.vlans.some((x) => x.id === id));
+    const edit = canEdit ? `<td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="openNetVLAN(${id})">Edit</button>${del ? ` <button class="btn small danger" onclick="openNetVLANDelete(${id})">Delete</button>` : ""}</td>` : "";
     return `<tr><td><span class="mono">${id}</span> ${esc(common)}${mism ? ` <span class="sev warning" title="${esc(Object.keys(names).join(", "))}">names differ</span>` : ""}</td>${cells}${edit}</tr>`;
   });
   $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1><span class="sub">${ids.length} across ${plural(data.length, "switch").replace("switchs", "switches")}</span><span class="grow"></span>
@@ -1271,6 +1272,52 @@ function openNetVLAN(id) {
       try { return { ...p, cmds: await call("PreviewVLAN", p.s.id, p.ch) }; } catch (e) { return { ...p, error: e.message }; }
     }));
     netVLANReview(v, previews);
+  };
+  draw();
+}
+
+// Deletes a VLAN from the ticked switches. Only switches that carry it and can
+// be changed are offered; the review step is the same as for edits.
+function openNetVLANDelete(id) {
+  const data = (S.vlanData || []).filter((s) => (s.vlans || []).some((x) => x.id === id));
+  const name = commonName(data, id).common;
+  const pick = {};
+  for (const s of data) pick[s.id] = s.editable;
+  const m = modal(`<h2>Delete VLAN ${id}${name ? ` (${esc(name)})` : ""}</h2><div class="body">
+    <div class="muted" style="font-size:13px;margin-bottom:8px">Tick the switches to delete this VLAN from. Ports that carry it lose it.</div>
+    <table><thead><tr><th style="width:28px"><input type="checkbox" id="ndall" title="All switches that can be changed"></th><th>Switch</th><th>Name</th><th>Ports</th></tr></thead><tbody id="ndrows"></tbody></table>
+    <div style="height:14px"></div><label class="check"><input type="checkbox" id="ndsave" checked> Save to startup config (write memory)</label>
+    <div id="nderr"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn danger" id="ndprev">Review changes</button></div>`, true);
+  const draw = () => {
+    $("#ndrows", m).innerHTML = data.map((s) => {
+      const v = s.vlans.find((x) => x.id === id);
+      const n = (v.untagged?.length || 0) + (v.tagged?.length || 0);
+      return `<tr><td><input type="checkbox" data-s="${s.id}" ${pick[s.id] ? "checked" : ""} ${s.editable ? "" : "disabled"}></td>
+        <td>${esc(s.name)} <span class="faint" style="font-size:12px">${esc(s.family)}</span>${s.online ? "" : ` <span class="sev warning">offline</span>`}</td>
+        <td>${v.name ? esc(v.name) : `<span class="faint">no name</span>`}</td>
+        <td>${s.editable ? (n ? plural(n, "port") : `<span class="faint">none</span>`) : `<span class="faint" style="font-size:12px">VLANs ${esc(s.readOnly)}</span>`}</td></tr>`;
+    }).join("");
+    const ed = data.filter((s) => s.editable);
+    $("#ndall", m).checked = ed.length > 0 && ed.every((s) => pick[s.id]);
+  };
+  $("#ndrows", m).addEventListener("change", (e) => {
+    const c = e.target.closest("[data-s]");
+    if (c) { pick[c.dataset.s] = c.checked; draw(); }
+  });
+  $("#ndall", m).onchange = (e) => {
+    for (const s of data) if (s.editable) pick[s.id] = e.target.checked;
+    draw();
+  };
+  $("#ndprev", m).onclick = async () => {
+    const save = $("#ndsave", m).checked;
+    const todo = data.filter((s) => s.editable && pick[s.id]).map((s) => ({ s, ch: { action: "delete", id, save } }));
+    if (!todo.length) { $("#nderr", m).innerHTML = `<div class="msg err">Tick at least one switch.</div>`; return; }
+    $("#ndprev", m).disabled = true;
+    const previews = await Promise.all(todo.map(async (p) => {
+      try { return { ...p, cmds: await call("PreviewVLAN", p.s.id, p.ch) }; } catch (e) { return { ...p, error: e.message }; }
+    }));
+    netVLANReview(id, previews);
   };
   draw();
 }
