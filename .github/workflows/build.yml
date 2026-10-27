@@ -63,6 +63,10 @@ jobs:
     if: github.ref_type == 'tag' || inputs.version != ''
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/changelog.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -72,7 +76,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else v="${{ inputs.version }}"; tag="v${v#v}"; fi
-          cat > notes.md <<'EOF'
+          # this version's section of the changelog goes first
+          awk -v v="## ${tag#v}" '$0==v{on=1;next} on&&/^## [0-9]/{exit} on' "$GITHUB_WORKSPACE/docs/changelog.md" > notes.md || true
+          cat >> notes.md <<'EOF'
           ## Downloads
 
           **macOS** (Apple Silicon and Intel): `SwitchDesk-*-macos-universal.zip`. Unzip and drag SwitchDesk to Applications. The app isn't notarized by Apple, so the first time right-click it and choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/SwitchDesk.app`.

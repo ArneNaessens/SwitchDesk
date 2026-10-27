@@ -2,14 +2,35 @@
 
 ## 0.9.2
 
-Security fixes. Please update.
+This release fixes security issues found in a code review and by GitHub code scanning (CodeQL). Please update.
 
-- **HTTPS certificates are pinned.** AOS-CX firmware uploads and Instant On (web interface) sign-ins used to accept any certificate. Now the first certificate a switch shows is remembered, the same way SSH host keys are. If it changes later, SwitchDesk stops and asks before sending the password. **Trust new key** on the switch page clears it.
-- **Instant On login can't be downgraded.** Once a switch has offered encrypted login, a later request for the password in plain text is refused.
-- **Test connection keeps the host key pin.** On an existing switch it now checks the saved SSH host key, so it no longer sends the password to a switch with a different key.
-- **Safer imports.** Switch and credential IDs in an imported `.sdbak` are checked and replaced when they aren't in the form SwitchDesk uses. A crafted export could otherwise reach files outside the data folder or put script into the window. In merge mode, an imported credential is matched to one of yours only when the username and password both match. Imported settings are kept within the normal ranges.
-- **Firmware file names are checked everywhere.** Files copied into the firmware folder by hand get a safe name if theirs has spaces, quotes, line breaks or other unusual characters. Before, such a name could add commands to the switch's `copy` command. Every value in that command is now checked too.
-- The Instant On session path and redirects must stay on the switch itself, and the Download update button only opens this project's release pages.
+### Security
+
+| Severity | Issue | Who could exploit it |
+|---|---|---|
+| High | Switch IDs in an imported `.sdbak` were used as file paths | Someone who gets you to import a crafted export |
+| Medium | Imported switch IDs were shown in the window without escaping | Someone who gets you to import a crafted export |
+| Medium | Firmware file names could add commands to the switch's `copy` command | Someone who gets a crafted file into your firmware folder (macOS/Linux) |
+| Medium | AOS-CX firmware upload accepted any HTTPS certificate | Someone on the network between you and the switch |
+| Medium | Instant On (web interface) login accepted any certificate and could be downgraded to plain text | Someone on the network between you and the switch |
+| Medium | Test connection ignored the saved SSH host key | Someone on the network between you and the switch |
+
+In detail:
+
+- **Imports.** IDs in an imported `.sdbak` are checked, and replaced when they aren't in the form SwitchDesk uses. Before, a crafted ID such as `../../folder` let the app read, write or delete files outside the data folder, and markup in an ID could run script in the window. Files already on disk are checked too. In merge mode, an imported credential is matched to one of yours only when both the username and the password match, so an imported switch can't borrow your password. Imported settings are kept within the normal ranges.
+- **HTTPS certificates are pinned.** AOS-CX firmware uploads and Instant On sign-ins now remember the certificate a switch shows the first time, the same way SSH host keys are remembered. If it changes, SwitchDesk stops before sending the password and shows a warning. **Trust new key** on the switch page clears it.
+- **No plaintext downgrade.** Once an Instant On switch has offered encrypted login, a later request for the password in plain text is refused.
+- **Test connection** on a saved switch checks the stored SSH host key, so it doesn't send the password to a switch with a different key.
+- **Firmware file names.** Files copied into the firmware folder by hand get a safe name if theirs has spaces, quotes, line breaks or other unusual characters. Every value in the switch's `copy tftp` command is checked as well.
+- **Smaller fixes.** The Instant On session path and redirects have to stay on the switch itself. The Download update button only opens this project's release pages. File names and links no longer go into inline JavaScript in the window.
+
+### What you'll notice
+
+- After updating, each AOS-CX and Instant On switch learns its HTTPS certificate on its next connection. You don't need to do anything.
+- If a switch is later reset or replaced, its page shows "The switch's identity changed" until you click **Trust new key**.
+- A firmware image you copied in by hand with an unusual name may now show up under a slightly different name.
+
+To report a security problem, see [SECURITY.md](https://github.com/jaba0x/SwitchDesk/blob/main/SECURITY.md).
 
 ## 0.9.1
 
