@@ -24,6 +24,7 @@ import (
 	"github.com/jaba0x/switchdesk/internal/aruba"
 	"github.com/jaba0x/switchdesk/internal/cxrest"
 	"github.com/jaba0x/switchdesk/internal/store"
+	"github.com/jaba0x/switchdesk/internal/tlspin"
 )
 
 // fakeAOSS is a pretend 2930F: it answers the firmware commands and, on
@@ -610,7 +611,7 @@ func cxSetup(t *testing.T, noTFTP bool) (*Manager, *fakeAOSS, string, []byte) {
 	port, _ := strconv.Atoi(portS)
 	sw, _ := st.SaveSwitch(store.Switch{Host: host, Port: port, CredentialID: cred.ID})
 	oldPush := cxPush
-	cxPush = func(context.Context, string, string, string, string, string, io.Reader, int64, func(int64, int64)) error {
+	cxPush = func(context.Context, string, *tlspin.Pin, string, string, string, string, io.Reader, int64, func(int64, int64)) error {
 		return fmt.Errorf("%w (connection refused)", cxrest.ErrNoREST)
 	}
 	t.Cleanup(func() { cxPush = oldPush })
@@ -701,7 +702,7 @@ func TestUpgradeAOSCXOverHTTPS(t *testing.T) {
 	m, fake, id, payload := cxSetup(t, true) // TFTP would hang
 	var got []byte
 	var gotBank, gotUser string
-	cxPush = func(_ context.Context, base, user, _ string, bank, _ string, r io.Reader, _ int64, progress func(int64, int64)) error {
+	cxPush = func(_ context.Context, base string, _ *tlspin.Pin, user, _ string, bank, _ string, r io.Reader, _ int64, progress func(int64, int64)) error {
 		fake.mu.Lock()
 		on := len(fake.cxCfg) > 0
 		fake.mu.Unlock()

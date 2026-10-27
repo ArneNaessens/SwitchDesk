@@ -1,6 +1,7 @@
 package aruba
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -543,5 +544,18 @@ Active Boot ROM:     Primary`
 	}
 	if len(s.Env) != 0 {
 		t.Fatalf("fanless switch got env items: %+v", s.Env)
+	}
+}
+
+// Values placed into the firmware copy command are single safe tokens; an
+// image name with a newline can't add another CLI command.
+func TestCopyImageRejectsUnsafeValues(t *testing.T) {
+	for _, file := range []string{"WC_16_11_0021\nboot set-default flash secondary\n.swi", "a b.swi", "x;reload", "x'y"} {
+		if _, err := CopyImage(context.Background(), nil, FamilyAOSS, "10.0.0.5", file, "secondary", ""); err == nil {
+			t.Errorf("accepted %q", file)
+		}
+	}
+	if _, err := CopyImage(context.Background(), nil, FamilyAOSCX, "10.0.0.5", "x.swi", "primary", "mgmt\nreload"); err == nil {
+		t.Error("accepted a vrf with a newline")
 	}
 }

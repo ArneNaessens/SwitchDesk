@@ -260,7 +260,7 @@ func (s *Store) Import(src, pass, mode string) (ImportResult, error) {
 			switch {
 			case name == "snapshots/"+oldID+".json":
 				target = filepath.Join(s.dir, "snapshots", newID+".json")
-			case strings.HasPrefix(name, "backups/"+oldID+"/") && strings.HasSuffix(name, ".cfg"):
+			case strings.HasPrefix(name, "backups/"+oldID+"/") && validBackupName(path.Base(name)):
 				target = filepath.Join(s.dir, "backups", newID, path.Base(name))
 			default:
 				continue
@@ -278,56 +278,95 @@ func (s *Store) Import(src, pass, mode string) (ImportResult, error) {
 			r.Close()
 		}
 	}
+	// IDs in the file are never trusted as-is: they are used in file paths
+	// and in the UI.
+	// keepID: an ID from the file is kept only if it has the NewID form and
+	// isn't in use here; otherwise the record gets a fresh one.
+	used := func(id string) bool {
+		for _, o := range s.d.Switches {
+			if o.ID == id {
+				return true
+			}
+		}
+		for _, o := range s.d.Credentials {
+			if o.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	keepID := func(id string) string {
+		if validID(id) && !used(id) {
+			return id
+		}
+		return NewID()
+	}
+	addCred := func(c Credential) (string, error) {
+		enc, err := s.encrypt(c.Password)
+		if err != nil {
+			return "", err
+		}
+		c.ID, c.Password = keepID(c.ID), enc
+		s.d.Credentials = append(s.d.Credentials, c)
+		res.Credentials++
+		return c.ID, nil
+	}
+	addSwitch := func(sw Switch, credMap map[string]string, layout map[string]Point) {
+		oldID := sw.ID
+		sw.ID = keepID(sw.ID)
+		sw.CredentialID = credMap[sw.CredentialID]
+		s.d.Switches = append(s.d.Switches, sw)
+		if p, ok := b.d.Layout[oldID]; ok {
+			layout[sw.ID] = p
+		}
+		if validID(oldID) {
+			extract(oldID, sw.ID)
+		}
+		res.Added++
+	}
 
 	switch mode {
 	case "replace":
-		creds := make([]Credential, 0, len(b.d.Credentials))
-		for _, c := range b.d.Credentials {
-			enc, err := s.encrypt(c.Password)
-			if err != nil {
-				return res, err
-			}
-			c.Password = enc
-			creds = append(creds, c)
-		}
 		os.RemoveAll(filepath.Join(s.dir, "snapshots"))
 		os.RemoveAll(filepath.Join(s.dir, "backups"))
 		os.MkdirAll(filepath.Join(s.dir, "snapshots"), 0o700)
 		os.MkdirAll(filepath.Join(s.dir, "backups"), 0o700)
-		s.d.Switches = b.d.Switches
-		s.d.Credentials = creds
-		s.d.Settings = b.d.Settings
-		s.d.Settings.CheckMethod = normCheckMethod(s.d.Settings.CheckMethod)
-		s.d.Layout = b.d.Layout
-		if s.d.Layout == nil {
-			s.d.Layout = map[string]Point{}
+		s.d.Switches, s.d.Credentials, s.d.Layout = nil, nil, map[string]Point{}
+		s.d.Settings = normSettings(b.d.Settings)
+		credMap := map[string]string{}
+		for _, c := range b.d.Credentials {
+			id, err := addCred(c)
+			if err != nil {
+				return res, err
+			}
+			credMap[c.ID] = id
 		}
-		for _, sw := range s.d.Switches {
-			extract(sw.ID, sw.ID)
+		for _, sw := range b.d.Switches {
+			addSwitch(sw, credMap, s.d.Layout)
 		}
-		res.Added = len(s.d.Switches)
-		res.Credentials = len(creds)
 	case "merge":
 		credMap := map[string]string{}
 		for _, c := range b.d.Credentials {
+			// reuse an existing credential only when it is the same login, so
+			// an imported switch can't be paired with a password it didn't bring
 			found := ""
 			for _, o := range s.d.Credentials {
-				if o.ID == c.ID {
-					found = o.ID
+				if o.Kind == c.Kind && o.Username == c.Username {
+					if pw, err := s.decrypt(o.Password); err == nil && pw == c.Password {
+						found = o.ID
+						break
+					}
 				}
 			}
 			if found != "" {
 				credMap[c.ID] = found
 				continue
 			}
-			enc, err := s.encrypt(c.Password)
+			id, err := addCred(c)
 			if err != nil {
 				return res, err
 			}
-			c.Password = enc
-			s.d.Credentials = append(s.d.Credentials, c)
-			credMap[c.ID] = c.ID
-			res.Credentials++
+			credMap[c.ID] = id
 		}
 		for _, sw := range b.d.Switches {
 			dup := false
@@ -343,19 +382,7 @@ func (s *Store) Import(src, pass, mode string) (ImportResult, error) {
 				res.Skipped = append(res.Skipped, firstNonEmpty(sw.Name, sw.Host)+" is already here")
 				continue
 			}
-			oldID := sw.ID
-			for _, o := range s.d.Switches {
-				if o.ID == sw.ID {
-					sw.ID = NewID()
-				}
-			}
-			sw.CredentialID = credMap[sw.CredentialID]
-			s.d.Switches = append(s.d.Switches, sw)
-			if p, ok := b.d.Layout[oldID]; ok {
-				s.d.Layout[sw.ID] = p
-			}
-			extract(oldID, sw.ID)
-			res.Added++
+			addSwitch(sw, credMap, s.d.Layout)
 		}
 	default:
 		return res, fmt.Errorf("unknown import mode %q", mode)

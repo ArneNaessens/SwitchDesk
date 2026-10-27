@@ -99,6 +99,12 @@ function renderSide() {
         <span>Built by Jaba Macharashvili</span></a></div>`;
 }
 
+// URLs go through a data attribute, never into inline JavaScript
+document.addEventListener("click", (e) => {
+  const u = e.target.closest("[data-open-url]");
+  if (u) openURL(u.dataset.openUrl);
+});
+
 document.addEventListener("click", (e) => {
   if (e.target.closest(".nogo")) return; // checkboxes and row buttons don't open the switch
   const go = e.target.closest("[data-go]");
@@ -405,7 +411,7 @@ function renderDetail(soft) {
   }
   const banners = [];
   if (d.disabled) banners.push(`<div class="banner" style="background:rgba(139,149,167,.08);border-color:var(--line)"><div class="grow"><b>This switch is disabled.</b> SwitchDesk doesn't check or read it and raises no problems for it. The data below is from its last reading.</div><button class="btn" onclick="setDisabled(['${d.id}'], false)">${ICON.play}Enable</button></div>`);
-  if (d.status.hostKeyChanged) banners.push(`<div class="banner"><div class="grow"><b>The SSH host key changed.</b> SwitchDesk stopped connecting to protect your credentials. If this switch was replaced or reset, trust the new key.</div><button class="btn" onclick="trustKey()">Trust new key</button></div>`);
+  if (d.status.hostKeyChanged) banners.push(`<div class="banner"><div class="grow"><b>${d.web ? "The switch's identity changed." : "The SSH host key changed."}</b> ${d.web ? "It presented a different HTTPS certificate, or stopped offering encrypted login." : ""} SwitchDesk stopped connecting to protect your credentials. If this switch was replaced or reset, trust the new key.</div><button class="btn" onclick="trustKey()">Trust new key</button></div>`);
   if (!d.web && !d.cloud && d.family === "instant-on") {
     const others = (S.dash?.switches || []).filter((v) => !v.web && !v.cloud && v.family === "instant-on").length;
     banners.push(`<div class="banner"><div class="grow"><b>Instant On switches have no SSH.</b> Read this one through its web interface instead, with the same login.</div><button class="btn" onclick="useWeb(['${d.id}'])">Use web interface</button>${others > 1 ? `<button class="btn" onclick="useWeb([])">All ${others} Instant On switches</button>` : ""}</div>`);
@@ -1373,7 +1379,7 @@ function showUpdate(u, force) {
   if (!force && skippedVersion() === u.latest) return;
   S.update = u;
   bar.innerHTML = `<div class="updbar"><b>SwitchDesk ${esc(u.latest)} is available.</b><span>You have ${esc(u.current)}.</span><span class="grow"></span>
-    <button class="ubtn" onclick="openURL('${esc(u.url)}')">Download update</button>
+    <button class="ubtn" data-open-url="${esc(u.url)}">Download update</button>
     <button class="ulink" onclick="hideUpdate()">Later</button></div>`;
   $("#content").classList.add("hasupd");
 }

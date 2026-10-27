@@ -45,7 +45,7 @@ func TestNegativeSerialCertificate(t *testing.T) {
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{negSerialCert(t)}}
 	srv.StartTLS()
 	defer srv.Close()
-	err := Push(context.Background(), srv.URL, "admin", "pw", "secondary", "x.swi", strings.NewReader("img"), 3, nil)
+	err := Push(context.Background(), srv.URL, nil, "admin", "pw", "secondary", "x.swi", strings.NewReader("img"), 3, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -74,7 +74,7 @@ func TestPush(t *testing.T) {
 	defer srv.Close()
 	img := bytes.Repeat([]byte("firmware"), 100000)
 	var last int64
-	err := Push(context.Background(), srv.URL, "admin", "pw", "secondary", "/lib/PL_10_16_1060.swi", bytes.NewReader(img), int64(len(img)), func(s, _ int64) { last = s })
+	err := Push(context.Background(), srv.URL, nil, "admin", "pw", "secondary", "/lib/PL_10_16_1060.swi", bytes.NewReader(img), int64(len(img)), func(s, _ int64) { last = s })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestPush(t *testing.T) {
 func TestPushBadPassword(t *testing.T) {
 	srv := httptest.NewTLSServer((&fakeCX{}).handler())
 	defer srv.Close()
-	err := Push(context.Background(), srv.URL, "admin", "nope", "secondary", "x.swi", strings.NewReader("x"), 1, nil)
+	err := Push(context.Background(), srv.URL, nil, "admin", "nope", "secondary", "x.swi", strings.NewReader("x"), 1, nil)
 	if err == nil || !strings.Contains(err.Error(), "refused the login") {
 		t.Fatalf("got %v", err)
 	}
@@ -105,7 +105,7 @@ func TestPushNoVersionList(t *testing.T) {
 	f := &fakeCX{noLatest: true}
 	srv := httptest.NewTLSServer(f.handler())
 	defer srv.Close()
-	if err := Push(context.Background(), srv.URL, "admin", "pw", "primary", "x.swi", strings.NewReader("abc"), 3, nil); err != nil {
+	if err := Push(context.Background(), srv.URL, nil, "admin", "pw", "primary", "x.swi", strings.NewReader("abc"), 3, nil); err != nil {
 		t.Fatal(err)
 	}
 	if string(f.got) != "abc" || f.bank != "primary" {
@@ -114,7 +114,7 @@ func TestPushNoVersionList(t *testing.T) {
 }
 
 func TestNoREST(t *testing.T) {
-	err := Push(context.Background(), "https://127.0.0.1:1", "a", "b", "primary", "x", strings.NewReader(""), 0, nil)
+	err := Push(context.Background(), "https://127.0.0.1:1", nil, "a", "b", "primary", "x", strings.NewReader(""), 0, nil)
 	if err == nil || !strings.Contains(err.Error(), "REST API didn't answer") {
 		t.Fatalf("got %v", err)
 	}

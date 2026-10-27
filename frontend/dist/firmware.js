@@ -125,7 +125,7 @@ function libraryTable() {
     ${FW.images.map((i) => `<tr><td class="mono">${esc(i.file)}</td><td class="mono">${esc(i.version.text)}</td>
       <td class="muted">${used[i.version.branch] ? `${used[i.version.branch]} of your switches` : `<span class="faint">none of your switches</span>`}</td>
       <td class="num">${mb(i.size)}</td><td class="faint">${ago(i.addedAt)}</td><td class="faint">${esc(i.source === "file" ? "added file" : i.source)}</td>
-      <td style="text-align:right"><button class="ib danger" title="Delete" onclick="deleteFirmware('${esc(i.file)}')">${ICON.trash}</button></td></tr>`).join("")}
+      <td style="text-align:right"><button class="ib danger" title="Delete" data-fw-delete="${esc(i.file)}">${ICON.trash}</button></td></tr>`).join("")}
     </tbody></table>`;
 }
 
@@ -171,6 +171,12 @@ function drawDl() {
     <div class="bar" style="max-width:420px"><i style="width:${pct ?? 100}%;background:var(--info);${pct === null ? "opacity:.4" : ""}"></i></div>`;
 }
 
+
+// file names go through a data attribute, never into inline JavaScript
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-fw-delete]");
+  if (b) deleteFirmware(b.dataset.fwDelete);
+});
 
 async function deleteFirmware(file) {
   if (!(await askConfirm(`Delete ${file} from the library?`))) return;

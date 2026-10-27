@@ -74,7 +74,9 @@ func (p *Portal) validate(w http.ResponseWriter, r *http.Request) {
 
 func (p *Portal) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if q.Get("sessionToken") != "session-ok" || q.Get("client_id") != "client-1" || q.Get("code_challenge_method") != "S256" {
+	// like a real authorization server, only the registered redirect URI
+	// (the portal itself) is accepted
+	if q.Get("sessionToken") != "session-ok" || q.Get("client_id") != "client-1" || q.Get("code_challenge_method") != "S256" || q.Get("redirect_uri") != p.URL+"/" {
 		w.WriteHeader(400)
 		return
 	}
@@ -82,7 +84,7 @@ func (p *Portal) authorize(w http.ResponseWriter, r *http.Request) {
 	code := p.next("code")
 	p.codes[code] = q.Get("code_challenge")
 	p.mu.Unlock()
-	http.Redirect(w, r, q.Get("redirect_uri")+"?code="+code+"&state="+url.QueryEscape(q.Get("state")), http.StatusFound)
+	http.Redirect(w, r, p.URL+"/?code="+code+"&state="+url.QueryEscape(q.Get("state")), http.StatusFound)
 }
 
 func (p *Portal) token(w http.ResponseWriter, r *http.Request) {

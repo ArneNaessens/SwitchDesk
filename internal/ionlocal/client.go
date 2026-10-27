@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,8 +20,11 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jaba0x/switchdesk/internal/tlspin"
 )
 
 var (
@@ -52,18 +54,45 @@ type Client struct {
 	Host string // address, optionally with :port
 	TLS  bool   // https instead of http
 	HTTP *http.Client
-	base string // "/cs1a2b3c4d/hpe/"
+	Pin  *tlspin.Pin
+	// RequireEncryption refuses to send the password in plaintext. It is set
+	// once a switch has offered encrypted login, so a later "encryption off"
+	// answer from someone in the middle can't downgrade it.
+	RequireEncryption bool
+	// Encrypted reports whether the last successful login was RSA-encrypted.
+	Encrypted bool
+	base      string // "/cs1a2b3c4d/hpe/"
 }
 
+// ErrDowngrade means the switch, which used encrypted login before, now asks
+// for the password in plaintext.
+var ErrDowngrade = errors.New("the switch stopped offering encrypted login; SwitchDesk won't send the password in plaintext")
+
 // New returns a client for host. Switches use self-signed certificates, so
-// HTTPS certificates aren't checked; the password is RSA-encrypted anyway.
-func New(host string, useTLS bool) *Client {
+// over HTTPS the certificate must match pin (an empty pin.Want trusts and
+// records the first one, like an SSH host key). A nil pin trusts on first use.
+func New(host string, useTLS bool, pin *tlspin.Pin) *Client {
+	if pin == nil {
+		pin = &tlspin.Pin{}
+	}
 	jar, _ := cookiejar.New(nil)
-	return &Client{Host: host, TLS: useTLS, HTTP: &http.Client{
+	return &Client{Host: host, TLS: useTLS, Pin: pin, HTTP: &http.Client{
 		Jar: jar, Timeout: 30 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, Proxy: nil},
+		Transport: &http.Transport{TLSClientConfig: pin.Config(), Proxy: nil},
+		// follow the switch's own redirects only, never to another host
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
 	}}
 }
+
+// sessionPath is the shape of the session folder the switch redirects to,
+// e.g. "/cs1a2b3c4d/hpe/". Anything else is refused, so a redirect can't
+// steer later requests to an arbitrary path.
+var sessionPath = regexp.MustCompile(`^/(cs[0-9A-Za-z]{1,32}/)?(hpe/)?$`)
 
 func (c *Client) root() string {
 	if c.TLS {
@@ -92,16 +121,21 @@ func (c *Client) discover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if resp.Request.URL.Host != c.Host {
+		return ErrNotLocal // redirected to another host
+	}
 	p := resp.Request.URL.Path // after redirects, e.g. /cs1a2b3c4d/hpe/config/login.htm
+	base := ""
 	if i := strings.Index(p, "/hpe/"); i >= 0 {
-		c.base = p[:i+len("/hpe/")]
-		return nil
+		base = p[:i+len("/hpe/")]
+	} else if i := strings.Index(p, "/config/"); i >= 0 {
+		base = p[:i+1]
 	}
-	if i := strings.Index(p, "/config/"); i >= 0 {
-		c.base = p[:i+1]
-		return nil
+	if base == "" || !sessionPath.MatchString(base) {
+		return ErrNotLocal
 	}
-	return ErrNotLocal
+	c.base = base
+	return nil
 }
 
 // Login signs in. Call Logout when done: the switch allows only a few web sessions.
@@ -118,7 +152,11 @@ func (c *Client) Login(ctx context.Context, user, pass string) error {
 		return ErrNotLocal
 	}
 	var q string
-	if enc.Text("passwEncryptEnable") == "1" {
+	encrypted := enc.Text("passwEncryptEnable") == "1"
+	if !encrypted && c.RequireEncryption {
+		return ErrDowngrade
+	}
+	if encrypted {
 		key, err := publicKey(enc.Text("rsaPublicKey"))
 		if err != nil {
 			return fmt.Errorf("reading the switch's login key: %w", err)
@@ -143,6 +181,7 @@ func (c *Client) Login(ctx context.Context, user, pass string) error {
 	switch code := st.Text("statusCode"); code {
 	case "0", "10", "13": // ok; ok but weak password; ok but password expires soon
 		c.shareCookies()
+		c.Encrypted = encrypted
 		return nil
 	case "4", "1":
 		return ErrLogin

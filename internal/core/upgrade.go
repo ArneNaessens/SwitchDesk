@@ -17,6 +17,7 @@ import (
 	"github.com/jaba0x/switchdesk/internal/firmware"
 	"github.com/jaba0x/switchdesk/internal/sshx"
 	"github.com/jaba0x/switchdesk/internal/store"
+	"github.com/jaba0x/switchdesk/internal/tlspin"
 )
 
 // Job is one firmware update of one switch.
@@ -787,11 +788,18 @@ func (m *Manager) pushImageCX(ctx context.Context, j *Job, sw store.Switch, s *s
 	m.step(j, fmt.Sprintf("Uploading %s (%s) to the %s bank over HTTPS", j.Image, humanBytes(info.Size()), bank))
 	start := time.Now()
 	base := "https://" + net.JoinHostPort(sw.Host, cxHTTPSPort)
-	err = cxPush(ctx, base, cred.Username, cred.Password, bank, j.Image, file, info.Size(), func(sent, total int64) {
+	pin := &tlspin.Pin{Want: sw.CertFP}
+	err = cxPush(ctx, base, pin, cred.Username, cred.Password, bank, j.Image, file, info.Size(), func(sent, total int64) {
 		if total > 0 {
 			m.update(j, func(j *Job) { j.Progress = float64(sent) / float64(total) })
 		}
 	})
+	if sw.CertFP == "" && pin.Seen() != "" && !errors.Is(err, tlspin.ErrChanged) {
+		m.st.SetCertFP(sw.ID, pin.Seen())
+	}
+	if errors.Is(err, tlspin.ErrChanged) {
+		return fmt.Errorf("%w; not sending the admin password. If the switch was replaced or its certificate renewed, use Trust new key on its page", err)
+	}
 	if err != nil {
 		if errors.Is(err, cxrest.ErrNoREST) {
 			err = fmt.Errorf("%w. Check that this computer can reach %s on TCP 443", err, sw.Host)

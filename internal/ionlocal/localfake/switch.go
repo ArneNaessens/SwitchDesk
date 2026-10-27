@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,12 @@ func (s *Switch) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func xmlOut(w http.ResponseWriter, section, name, code string) {
+	// name comes from the request: escape it, and answer as XML like the switch does
+	var esc strings.Builder
+	xml.EscapeText(&esc, []byte(name))
+	name = esc.String()
+	w.Header().Set("Content-Type", "text/xml; charset=UTF-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	fmt.Fprintf(w, "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<ResponseData>\n<DeviceConfiguration>\n<version>1.0</version>\n%s\n</DeviceConfiguration>\n<ActionStatus>\n<requestURL>%s</requestURL>\n<statusCode>%s</statusCode>\n</ActionStatus>\n</ResponseData>\n", section, name, code)
 }
 

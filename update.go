@@ -58,7 +58,11 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 		return info, err
 	}
 	info.Latest = strings.TrimPrefix(rel.Tag, "v")
-	info.URL = rel.URL
+	// only ever link to this repository's release pages
+	info.URL = "https://github.com/jaba0x/SwitchDesk/releases/latest"
+	if strings.HasPrefix(rel.URL, "https://github.com/jaba0x/SwitchDesk/releases/") {
+		info.URL = rel.URL
+	}
 	info.Published = rel.Published
 	info.Available = !rel.Draft && !rel.Pre && appver.Newer(info.Latest, Version)
 	updMu.Lock()

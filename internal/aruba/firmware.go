@@ -98,7 +98,20 @@ type UpgradeStep func(stage, detail string)
 
 // CopyImage tells the switch to pull an image from a TFTP server into bank.
 // vrf is only used on AOS-CX ("mgmt" or "default").
+// cliToken is what may go into a firmware CLI line as one argument: no
+// spaces, quotes, separators or control characters that could end the line
+// or add another command.
+var cliToken = regexp.MustCompile(`^[A-Za-z0-9._+:\-\[\]]{1,200}$`)
+
 func CopyImage(ctx context.Context, r Runner, f Family, server, file, bank, vrf string) (string, error) {
+	for _, v := range []string{server, file, bank} {
+		if !cliToken.MatchString(v) {
+			return "", fmt.Errorf("refusing to send an unsafe value to the switch: %q", v)
+		}
+	}
+	if vrf != "" && !cliToken.MatchString(vrf) {
+		return "", fmt.Errorf("refusing to send an unsafe value to the switch: %q", vrf)
+	}
 	var cmd string
 	switch f {
 	case FamilyAOSCX:

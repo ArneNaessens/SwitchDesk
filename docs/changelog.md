@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.2
+
+Security fixes. Please update.
+
+- **HTTPS certificates are pinned.** AOS-CX firmware uploads and Instant On (web interface) sign-ins used to accept any certificate. Now the first certificate a switch shows is remembered, the same way SSH host keys are. If it changes later, SwitchDesk stops and asks before sending the password. **Trust new key** on the switch page clears it.
+- **Instant On login can't be downgraded.** Once a switch has offered encrypted login, a later request for the password in plain text is refused.
+- **Test connection keeps the host key pin.** On an existing switch it now checks the saved SSH host key, so it no longer sends the password to a switch with a different key.
+- **Safer imports.** Switch and credential IDs in an imported `.sdbak` are checked and replaced when they aren't in the form SwitchDesk uses. A crafted export could otherwise reach files outside the data folder or put script into the window. In merge mode, an imported credential is matched to one of yours only when the username and password both match. Imported settings are kept within the normal ranges.
+- **Firmware file names are checked everywhere.** Files copied into the firmware folder by hand get a safe name if theirs has spaces, quotes, line breaks or other unusual characters. Before, such a name could add commands to the switch's `copy` command. Every value in that command is now checked too.
+- The Instant On session path and redirects must stay on the switch itself, and the Download update button only opens this project's release pages.
+
 ## 0.9.1
 
 - Pages use the full width of the window. The switch list no longer scrolls sideways on wide screens.

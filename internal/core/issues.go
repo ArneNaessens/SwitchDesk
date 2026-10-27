@@ -62,7 +62,11 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 		add(Critical, "Reachability", "Switch is offline", d)
 	}
 	if st.HostKeyChanged {
-		add(Critical, "SSH", "SSH host key changed", "The switch presented a different host key than before. If the switch was replaced or reset, trust the new key from the switch page.")
+		if sw.Web {
+			add(Critical, "Security", "Switch identity changed", "The switch presented a different HTTPS certificate than before, or stopped offering encrypted login. SwitchDesk stopped signing in to protect the password. If the switch was replaced or reset, trust it again from the switch page.")
+		} else {
+			add(Critical, "SSH", "SSH host key changed", "The switch presented a different host key than before. If the switch was replaced or reset, trust the new key from the switch page.")
+		}
 	}
 	if st.AuthFailed && sw.Cloud != nil {
 		add(Critical, "Instant On", "Instant On login failed", st.CollectError)

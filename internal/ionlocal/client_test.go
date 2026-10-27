@@ -17,7 +17,7 @@ import (
 func TestLoginCollectLogout(t *testing.T) {
 	sw := localfake.New("admin", "p@ss word&=1")
 	defer sw.Close()
-	c := New(sw.Host(), false)
+	c := New(sw.Host(), false, nil)
 	ctx := context.Background()
 	if err := c.Login(ctx, "admin", "p@ss word&=1"); err != nil {
 		t.Fatal(err)
@@ -114,18 +114,18 @@ func TestWrongPasswordAndSessionLimit(t *testing.T) {
 	sw := localfake.New("admin", "secret")
 	defer sw.Close()
 	ctx := context.Background()
-	if err := New(sw.Host(), false).Login(ctx, "admin", "nope"); !errors.Is(err, ErrLogin) {
+	if err := New(sw.Host(), false, nil).Login(ctx, "admin", "nope"); !errors.Is(err, ErrLogin) {
 		t.Fatalf("wrong password: %v", err)
 	}
 	sw.MaxSessions = 1
-	if err := New(sw.Host(), false).Login(ctx, "admin", "secret"); err != nil {
+	if err := New(sw.Host(), false, nil).Login(ctx, "admin", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := New(sw.Host(), false).Login(ctx, "admin", "secret"); !errors.Is(err, ErrTooMany) {
+	if err := New(sw.Host(), false, nil).Login(ctx, "admin", "secret"); !errors.Is(err, ErrTooMany) {
 		t.Fatalf("second session: %v", err)
 	}
 	// without a session the sections are refused
-	if _, err := New(sw.Host(), false).Get(ctx, "Ports"); err == nil {
+	if _, err := New(sw.Host(), false, nil).Get(ctx, "Ports"); err == nil {
 		t.Fatal("read without login")
 	}
 }
@@ -187,7 +187,7 @@ func TestModelWithoutSomeSections(t *testing.T) {
 		"48p Gigabit CL4 PoE 4p SFP+ 370W 1930 JL686A", "8p Gigabit 2p SFP 1930 JL680A", 1)
 	sw.Refused = map[string]string{"LoopbackDetectionList": "3", "MemoryLogTable": "4"}
 	ctx := context.Background()
-	c := New(sw.Host(), false)
+	c := New(sw.Host(), false, nil)
 	if err := c.Login(ctx, "admin", "secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestModelWithoutSomeSections(t *testing.T) {
 	}
 	// a session that really ends still stops the read, with the reason
 	sw.Refused = nil
-	c2 := New(sw.Host(), false)
+	c2 := New(sw.Host(), false, nil)
 	if err := c2.Login(ctx, "admin", "secret"); err != nil {
 		t.Fatal(err)
 	}

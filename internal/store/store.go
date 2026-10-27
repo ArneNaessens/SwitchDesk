@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -30,8 +31,14 @@ type Switch struct {
 	Site         string       `json:"site"`
 	Notes        string       `json:"notes"`
 	HostKey      string       `json:"hostKey"`
-	Disabled     bool         `json:"disabled"` // paused: not polled, not read, no alerts
-	CreatedAt    time.Time    `json:"createdAt"`
+	// CertFP pins the switch's HTTPS certificate (AOS-CX REST, Instant On
+	// web), learned on first use like HostKey.
+	CertFP string `json:"certFp,omitempty"`
+	// WebEncrypted records that an Instant On switch offered encrypted login,
+	// so a later plaintext request is refused.
+	WebEncrypted bool      `json:"webEncrypted,omitempty"`
+	Disabled     bool      `json:"disabled"` // paused: not polled, not read, no alerts
+	CreatedAt    time.Time `json:"createdAt"`
 	// Cloud is set for Instant On switches read from the portal instead of SSH.
 	// CredentialID then points to an Instant On account.
 	Cloud *CloudRef `json:"cloud,omitempty"`
@@ -147,6 +154,26 @@ func Open(dir string) (*Store, error) {
 	if s.d.Layout == nil {
 		s.d.Layout = map[string]Point{}
 	}
+	// give any switch or credential with an unusable ID a fresh one
+	credIDs := map[string]string{}
+	for i, c := range s.d.Credentials {
+		if !validID(c.ID) {
+			credIDs[c.ID] = NewID()
+			s.d.Credentials[i].ID = credIDs[c.ID]
+		}
+	}
+	for i, sw := range s.d.Switches {
+		if id, ok := credIDs[sw.CredentialID]; ok {
+			s.d.Switches[i].CredentialID = id
+		}
+		if !validID(sw.ID) {
+			delete(s.d.Layout, sw.ID)
+			s.d.Switches[i].ID = NewID()
+		}
+	}
+	if s.d.Settings.Parallel > 16 {
+		s.d.Settings.Parallel = 16
+	}
 	def := DefaultSettings()
 	s.d.Settings.CheckMethod = normCheckMethod(s.d.Settings.CheckMethod)
 	if s.d.Settings.PingInterval < 5 {
@@ -215,6 +242,8 @@ func (s *Store) decrypt(v string) (string, error) {
 }
 
 // ---- switches ----
+
+var errBadID = errors.New("bad switch id")
 
 func NewID() string {
 	b := make([]byte, 6)
@@ -288,9 +317,15 @@ func (s *Store) SaveSwitch(sw Switch) (Switch, error) {
 		for i, o := range s.d.Switches {
 			if o.ID == sw.ID {
 				if sw.Host != o.Host {
-					sw.HostKey = "" // new address, new trust decision
-				} else if sw.HostKey == "" {
-					sw.HostKey = o.HostKey
+					// new address, new trust decision
+					sw.HostKey, sw.CertFP, sw.WebEncrypted = "", "", false
+				} else {
+					if sw.HostKey == "" {
+						sw.HostKey = o.HostKey
+					}
+					// pins are only changed by SetCertFP / TrustNewHostKey,
+					// never by what the UI sends back
+					sw.CertFP, sw.WebEncrypted = o.CertFP, o.WebEncrypted
 				}
 				sw.CreatedAt = o.CreatedAt
 				s.d.Switches[i] = sw
@@ -327,6 +362,30 @@ func (s *Store) SetHostKey(id, key string) {
 	}
 }
 
+// SetCertFP pins (or with "" clears) a switch's HTTPS certificate.
+func (s *Store) SetCertFP(id, fp string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.d.Switches {
+		if s.d.Switches[i].ID == id && s.d.Switches[i].CertFP != fp {
+			s.d.Switches[i].CertFP = fp
+			s.saveLocked()
+		}
+	}
+}
+
+// SetWebEncrypted records whether an Instant On switch uses encrypted login.
+func (s *Store) SetWebEncrypted(id string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.d.Switches {
+		if s.d.Switches[i].ID == id && s.d.Switches[i].WebEncrypted != on {
+			s.d.Switches[i].WebEncrypted = on
+			s.saveLocked()
+		}
+	}
+}
+
 // SetDisabled pauses or resumes the given switches.
 func (s *Store) SetDisabled(ids []string, disabled bool) error {
 	s.mu.Lock()
@@ -354,8 +413,10 @@ func (s *Store) DeleteSwitch(id string) error {
 	}
 	s.d.Switches = out
 	delete(s.d.Layout, id)
-	os.Remove(filepath.Join(s.dir, "snapshots", id+".json"))
-	os.RemoveAll(filepath.Join(s.dir, "backups", id))
+	if validID(id) {
+		os.Remove(filepath.Join(s.dir, "snapshots", id+".json"))
+		os.RemoveAll(filepath.Join(s.dir, "backups", id))
+	}
 	return s.saveLocked()
 }
 
@@ -496,6 +557,52 @@ func (s *Store) SaveSettings(v Settings) error {
 	return s.saveLocked()
 }
 
+// normSettings clamps settings from an import to the ranges SaveSettings
+// allows; anything unusable falls back to the default.
+func normSettings(v Settings) Settings {
+	def := DefaultSettings()
+	v.CheckMethod = normCheckMethod(v.CheckMethod)
+	if v.PingInterval < 5 {
+		v.PingInterval = def.PingInterval
+	}
+	if v.CollectInterval < 0 {
+		v.CollectInterval = def.CollectInterval
+	}
+	if v.Parallel < 1 || v.Parallel > 16 {
+		v.Parallel = def.Parallel
+	}
+	if v.KeepBackups < 1 {
+		v.KeepBackups = def.KeepBackups
+	}
+	if v.CPUWarn <= 0 || v.CPUWarn > 100 {
+		v.CPUWarn = def.CPUWarn
+	}
+	if v.MemWarn <= 0 || v.MemWarn > 100 {
+		v.MemWarn = def.MemWarn
+	}
+	switch v.FirmwareAuto {
+	case "off", "stage", "install":
+	default:
+		v.FirmwareAuto = "off"
+	}
+	_, e1 := time.Parse("15:04", v.WindowStart)
+	_, e2 := time.Parse("15:04", v.WindowEnd)
+	if e1 != nil || e2 != nil {
+		v.WindowStart, v.WindowEnd = def.WindowStart, def.WindowEnd
+	}
+	return v
+}
+
+// IDs are made by NewID and used in file paths and the UI; anything else
+// (for example from a hand-edited or crafted inventory) is refused.
+var idRe = regexp.MustCompile(`^[0-9a-f]{1,32}$`)
+
+func validID(id string) bool { return idRe.MatchString(id) }
+
+var backupRe = regexp.MustCompile(`^[0-9A-Za-z_-]{1,64}\.cfg$`)
+
+func validBackupName(n string) bool { return backupRe.MatchString(n) }
+
 // normCheckMethod maps unknown or missing values (settings saved by older
 // versions) to the port check, which is what those versions did.
 func normCheckMethod(m string) string {
@@ -526,6 +633,9 @@ func (s *Store) SaveLayout(l map[string]Point) error {
 // ---- snapshots & backups ----
 
 func (s *Store) SaveSnapshot(id string, snap aruba.Snapshot) error {
+	if !validID(id) {
+		return errBadID
+	}
 	b, err := json.Marshal(snap)
 	if err != nil {
 		return err
@@ -535,6 +645,9 @@ func (s *Store) SaveSnapshot(id string, snap aruba.Snapshot) error {
 
 func (s *Store) LoadSnapshot(id string) (aruba.Snapshot, bool) {
 	var snap aruba.Snapshot
+	if !validID(id) {
+		return snap, false
+	}
 	b, err := os.ReadFile(filepath.Join(s.dir, "snapshots", id+".json"))
 	if err != nil || json.Unmarshal(b, &snap) != nil {
 		return snap, false
@@ -553,6 +666,9 @@ func (s *Store) SaveBackup(id, cfg string, keep int) (bool, error) {
 	cfg = strings.TrimSpace(cfg)
 	if cfg == "" {
 		return false, nil
+	}
+	if !validID(id) {
+		return false, errBadID
 	}
 	dir := filepath.Join(s.dir, "backups", id)
 	os.MkdirAll(dir, 0o700)
@@ -588,11 +704,14 @@ func normalizeCfg(c string) string {
 }
 
 func (s *Store) Backups(id string) []Backup {
+	if !validID(id) {
+		return nil
+	}
 	dir := filepath.Join(s.dir, "backups", id)
 	ents, _ := os.ReadDir(dir)
 	var out []Backup
 	for _, e := range ents {
-		if !strings.HasSuffix(e.Name(), ".cfg") {
+		if !validBackupName(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -610,7 +729,10 @@ func (s *Store) Backups(id string) []Backup {
 }
 
 func (s *Store) ReadBackup(id, name string) (string, error) {
-	if strings.ContainsAny(name, `/\`) || !strings.HasSuffix(name, ".cfg") {
+	if !validID(id) {
+		return "", errBadID
+	}
+	if !validBackupName(name) {
 		return "", errors.New("bad backup name")
 	}
 	b, err := os.ReadFile(filepath.Join(s.dir, "backups", id, name))

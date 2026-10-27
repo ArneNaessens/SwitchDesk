@@ -22,6 +22,8 @@ SwitchDesk remembers each switch's SSH host key the first time it connects. If a
 
 The usual innocent reasons are a replaced switch, a factory reset, or a regenerated key (`crypto key generate`). If that's what happened, open the switch and click **Trust new key**.
 
+The same goes for HTTPS. SwitchDesk remembers the certificate an AOS-CX switch shows on its first firmware upload over HTTPS, and the one an Instant On switch shows when it's first read through its web interface. A new certificate (after a reset, a renewal or a replacement) stops the upload or the reading with "certificate changed". An Instant On switch that stops offering encrypted login is treated the same way. **Trust new key** clears all of these, and the next connection learns them again.
+
 ## Older switches won't connect
 
 Older ProCurve and AOS-S firmware only speaks old SSH algorithms (`diffie-hellman-group14-sha1`, `aes-cbc`, `ssh-rsa`). SwitchDesk still accepts them so these switches keep working, but updating the switch firmware is the better fix.

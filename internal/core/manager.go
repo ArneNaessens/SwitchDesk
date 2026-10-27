@@ -393,7 +393,7 @@ func (m *Manager) collect(id string) {
 	if err != nil {
 		m.mu.Lock()
 		st.CollectError = err.Error()
-		st.HostKeyChanged = errors.Is(err, sshx.ErrHostKeyMismatch)
+		st.HostKeyChanged = identityChanged(err)
 		st.AuthFailed = strings.Contains(err.Error(), "unable to authenticate") || strings.Contains(err.Error(), "no credentials")
 		st.LastCollect = time.Now()
 		m.mu.Unlock()
@@ -461,6 +461,8 @@ func (m *Manager) Forget(id string) {
 // TrustNewHostKey clears the pinned key so the next connect re-learns it.
 func (m *Manager) TrustNewHostKey(id string) {
 	m.st.SetHostKey(id, "")
+	m.st.SetCertFP(id, "")
+	m.st.SetWebEncrypted(id, false)
 	st := m.stat(id)
 	m.mu.Lock()
 	st.HostKeyChanged = false
@@ -773,7 +775,13 @@ func (m *Manager) TestConnection(sw store.Switch) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s, err := sshx.Dial(ctx, sshx.Options{Host: sw.Host, Port: sw.Port, Username: cred.Username, Password: cred.Password, Timeout: 10 * time.Second})
+	// an existing switch keeps its pinned host key; take it from the store,
+	// not from what the dialog sent
+	known := ""
+	if o, ok := m.st.Switch(sw.ID); ok && sw.ID != "" && strings.EqualFold(o.Host, sw.Host) && o.Port == sw.Port {
+		known = o.HostKey
+	}
+	s, err := sshx.Dial(ctx, sshx.Options{Host: sw.Host, Port: sw.Port, Username: cred.Username, Password: cred.Password, KnownKey: known, Timeout: 10 * time.Second})
 	if err != nil {
 		return "", err
 	}

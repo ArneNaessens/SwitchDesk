@@ -5,7 +5,6 @@ package cxrest
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jaba0x/switchdesk/internal/tlspin"
 )
 
 // Fallback versions tried when GET /rest doesn't say which ones exist.
@@ -34,12 +35,17 @@ type Client struct {
 }
 
 // New returns a client for base. Switches use self-signed certificates, so
-// the certificate isn't checked; login and image are still sent encrypted.
-func New(base string) *Client {
+// instead of a CA check the certificate must match pin (or, with an empty
+// pin.Want, is remembered in pin for the caller to store). A nil pin trusts
+// the first certificate it sees.
+func New(base string, pin *tlspin.Pin) *Client {
+	if pin == nil {
+		pin = &tlspin.Pin{}
+	}
 	jar, _ := cookiejar.New(nil)
 	return &Client{Base: strings.TrimRight(base, "/"), HTTP: &http.Client{
 		Jar:       jar,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, Proxy: nil, ResponseHeaderTimeout: 20 * time.Minute},
+		Transport: &http.Transport{TLSClientConfig: pin.Config(), Proxy: nil, ResponseHeaderTimeout: 20 * time.Minute},
 	}}
 }
 
@@ -97,6 +103,9 @@ func bodyText(r *http.Response) string {
 // version finds the newest REST version the switch offers.
 func (c *Client) version(ctx context.Context) error {
 	resp, err := c.do(ctx, "GET", "/rest", nil, "", 20*time.Second)
+	if errors.Is(err, tlspin.ErrChanged) {
+		return tlspin.ErrChanged
+	}
 	if err != nil {
 		return fmt.Errorf("%w (%v)", ErrNoREST, err)
 	}
@@ -208,8 +217,8 @@ func (c *counter) Read(p []byte) (int, error) {
 }
 
 // Push logs in, uploads and logs out.
-func Push(ctx context.Context, base, user, pass, bank, name string, file io.Reader, size int64, progress func(sent, total int64)) error {
-	c := New(base)
+func Push(ctx context.Context, base string, pin *tlspin.Pin, user, pass, bank, name string, file io.Reader, size int64, progress func(sent, total int64)) error {
+	c := New(base, pin)
 	if err := c.Login(ctx, user, pass); err != nil {
 		return err
 	}

@@ -63,6 +63,11 @@ func (l *Library) reconcile() {
 	defer l.mu.Unlock()
 	changed := false
 	for name := range l.idx {
+		if _, err := checkName(name); err != nil {
+			delete(l.idx, name)
+			changed = true
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(l.dir, name)); err != nil {
 			delete(l.idx, name)
 			changed = true
@@ -70,14 +75,31 @@ func (l *Library) reconcile() {
 	}
 	ents, _ := os.ReadDir(l.dir)
 	for _, e := range ents {
-		if e.IsDir() || !isImageName(e.Name()) {
+		if !e.Type().IsRegular() || !isImageName(e.Name()) {
 			continue
 		}
-		if _, ok := l.idx[e.Name()]; ok {
+		name, err := checkName(e.Name())
+		if err != nil {
+			// A file copied in by hand with spaces, quotes, newlines or other
+			// characters a switch CLI or the UI can't take safely is renamed
+			// to a safe name; if that name is taken it is left out.
+			safe, cerr := checkName(cleanName(e.Name()))
+			if cerr != nil || !isImageName(safe) {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(l.dir, safe)); err == nil {
+				continue
+			}
+			if os.Rename(filepath.Join(l.dir, e.Name()), filepath.Join(l.dir, safe)) != nil {
+				continue
+			}
+			name = safe
+		}
+		if _, ok := l.idx[name]; ok {
 			continue
 		}
-		if img, err := describe(filepath.Join(l.dir, e.Name()), "file"); err == nil {
-			l.idx[e.Name()] = img
+		if img, err := describe(filepath.Join(l.dir, name), "file"); err == nil {
+			l.idx[name] = img
 			changed = true
 		}
 	}
@@ -94,6 +116,18 @@ func isImageName(n string) bool {
 }
 
 var safeFile = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,200}$`)
+
+// checkName makes sure an image name is a single safe file name inside the
+// library folder: no separators, no "..", only [A-Za-z0-9._+-]. Names reach
+// file paths, the switch CLI ("copy tftp ...") and the UI, so every name is
+// checked here before use.
+func checkName(n string) (string, error) {
+	n = filepath.Base(n)
+	if n == "." || n == "index.json" || strings.Contains(n, "..") || !safeFile.MatchString(n) {
+		return "", errors.New("bad file name")
+	}
+	return n, nil
+}
 
 func describe(p, source string) (Image, error) {
 	st, err := os.Stat(p)
@@ -144,10 +178,11 @@ func (l *Library) Get(file string) (Image, bool) {
 // Path returns the full path of an image in the library, refusing anything
 // that would escape the folder.
 func (l *Library) Path(file string) (string, error) {
-	if !safeFile.MatchString(file) || file == "index.json" {
+	name, err := checkName(file)
+	if err != nil || name != file {
 		return "", errors.New("bad file name")
 	}
-	return filepath.Join(l.dir, file), nil
+	return filepath.Join(l.dir, name), nil
 }
 
 // Latest returns the newest image for a branch, if any.
@@ -164,8 +199,8 @@ func (l *Library) Latest(branch string) (Image, bool) {
 
 // AddFile copies a local image into the library.
 func (l *Library) AddFile(src string) (Image, error) {
-	name := cleanName(filepath.Base(src))
-	if !isImageName(name) {
+	name, err := checkName(cleanName(filepath.Base(src)))
+	if err != nil || !isImageName(name) {
 		return Image{}, errors.New("firmware images end in .swi")
 	}
 	if _, err := DetectImage(src); err != nil {
@@ -254,9 +289,10 @@ func (l *Library) Download(ctx context.Context, link string, progress Progress) 
 	if name == "" {
 		name = path.Base(resp.Request.URL.Path)
 	}
-	name = cleanName(name)
-	if !isImageName(name) {
-		return Image{}, fmt.Errorf("the link points to %q, not a .swi firmware image", name)
+	clean := cleanName(name)
+	name, err = checkName(clean)
+	if err != nil || !isImageName(name) {
+		return Image{}, fmt.Errorf("the link points to %q, not a .swi firmware image", clean)
 	}
 	dst := filepath.Join(l.dir, name)
 	tmp := dst + ".part"
