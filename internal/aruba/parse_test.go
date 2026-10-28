@@ -311,6 +311,11 @@ func TestParseConfig(t *testing.T) {
 	if len(v) != 2 || v[1].Name != "Servers" || !reflect.DeepEqual(v[1].Tagged, []string{"49"}) || len(v[0].Untagged) != 50 {
 		t.Fatalf("aos-s vlans: %+v", v)
 	}
+	// Issue #11: J9774A/J9775A name the server with "ntp server-name".
+	_, nsec, _ := ParseConfigAOSS("timesync ntp\nntp unicast\nntp server-name \"time.windows.com\" iburst\nntp server 10.0.0.11 iburst\nntp enable\n")
+	if !reflect.DeepEqual(nsec.NTPServers, []string{"time.windows.com", "10.0.0.11"}) {
+		t.Fatalf("aos-s ntp: %v", nsec.NTPServers)
+	}
 	cv, csec, cstp := ParseConfigCX(cxCfg)
 	if !cstp || csec.TelnetEnabled || !csec.HTTPSEnabled || len(csec.LogServers) != 1 {
 		t.Fatalf("cx sec: %+v", csec)
