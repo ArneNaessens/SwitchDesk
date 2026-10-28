@@ -163,8 +163,10 @@ func AfterChange(vlans []VLAN, c VLANChange) []VLAN {
 			if c.Name != "" {
 				v.Name = c.Name
 			}
-			v.Untagged = append(without(v.Untagged, removed), c.AddUntagged...)
-			v.Tagged = append(without(v.Tagged, removed), c.AddTagged...)
+			tagged := set(c.AddTagged)
+			// a port added again isn't listed twice
+			v.Untagged = append(without(without(v.Untagged, removed), untagged), c.AddUntagged...)
+			v.Tagged = append(without(without(v.Tagged, removed), tagged), c.AddTagged...)
 		} else {
 			v.Untagged = without(v.Untagged, untagged)
 		}

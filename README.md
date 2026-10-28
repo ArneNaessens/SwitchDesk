@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.9.2-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.3-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -57,7 +57,7 @@ System facts, a management-access checklist, spanning tree (bridge, root, port r
 ### VLANs without the CLI
 Create, rename and delete VLANs, and set port membership by clicking ports through untagged, tagged and off. Before anything is sent you see the exact commands. Sending stops at the first line the switch rejects, and `write memory` only runs when every line before it went through.
 
-A network-wide matrix shows which switch carries which VLAN and flags names that don't match between switches.
+A network-wide matrix shows which switch carries which VLAN and flags names that don't match between switches. From there you can rename, add or remove a VLAN on many switches at once, and review every switch's commands before anything is sent.
 
 ### Network map
 
@@ -196,5 +196,7 @@ The parsers are tested against sample output from AOS-S and AOS-CX. When a switc
 Built by **Jaba Macharashvili**. More of my infra, homelab and hardware projects are on [clihero.com](https://clihero.com).
 
 ## Credits
+
+Thanks to [Arne Naessens](https://github.com/ArneNaessens) for mass VLAN editing, and to everyone who reports issues.
 
 Built with [Wails](https://wails.io). Fonts are [IBM Plex](https://github.com/IBM/plex), under the SIL Open Font License.

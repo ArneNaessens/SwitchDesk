@@ -114,6 +114,14 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", route);
 
 async function route() {
+  try {
+    await showRoute();
+  } catch (e) {
+    showError("Opening " + (location.hash || "#/dashboard"), e);
+  }
+}
+
+async function showRoute() {
   // a dialog belongs to the page it was opened on
   if (S.modalOpen) { $(".veil")?.remove(); S.modalOpen = false; }
   const h = location.hash.replace(/^#\/?/, "") || "dashboard";
@@ -1591,13 +1599,49 @@ async function checkUpdate(btn) {
 }
 
 // ---------- boot ----------
+// showError puts an error on the page instead of leaving it blank, with the
+// details to copy into a GitHub issue.
+function showError(where, e) {
+  console.error(where, e);
+  const msg = `${where}: ${e?.message || e}${e?.stack ? "\n\n" + e.stack : ""}\n\nSwitchDesk ${S.version || ""} · ${navigator.userAgent}`;
+  const box = document.createElement("div");
+  box.className = "page";
+  box.innerHTML = `<div class="panel" style="max-width:820px"><h2>Something went wrong</h2><div class="body">
+    <p class="muted" style="margin-top:0">This page couldn't be shown. Please copy the details below into an issue at github.com/jaba0x/SwitchDesk/issues, so it can be fixed.</p>
+    <pre class="code mono" style="white-space:pre-wrap;max-height:260px;overflow:auto"></pre>
+    <button class="btn" data-copy>Copy details</button> <button class="btn" data-go="#/dashboard">Back to dashboard</button></div></div>`;
+  $("pre", box).textContent = msg;
+  $("[data-copy]", box).onclick = () => navigator.clipboard?.writeText(msg).then(() => toast("Copied"));
+  const main = $("#main");
+  main.innerHTML = "";
+  main.appendChild(box);
+}
+
+window.addEventListener("unhandledrejection", (e) => toast("Error: " + (e.reason?.message || e.reason), true));
+window.addEventListener("error", (e) => toast("Error: " + e.message, true));
+
 async function boot() {
-  for (let i = 0; i < 100 && !window.go?.main?.App; i++) await new Promise((r) => setTimeout(r, 30));
+  try {
+    await start();
+  } catch (e) {
+    try { renderSide(); } catch {}
+    showError("Starting SwitchDesk", e);
+  }
+}
+
+async function start() {
+  // On a slow start (many switches, a busy computer) the backend can take a
+  // few seconds to connect; wait up to 30 s and say so.
+  for (let i = 0; i < 1000 && !window.go?.main?.App; i++) {
+    if (i === 40) $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Starting SwitchDesk…</h3></div></div>`;
+    await new Promise((r) => setTimeout(r, 30));
+  }
   api = window.go?.main?.App;
   if (!api) {
     $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Can't reach the SwitchDesk backend</h3><p>Open this page through the SwitchDesk app.</p></div></div>`;
     return;
   }
+  S.version = await call("Version").catch(() => "");
   const plat = await call("Platform");
   if (plat === "darwin") document.documentElement.style.setProperty("--top", "22px");
   S.settings = await call("GetSettings");

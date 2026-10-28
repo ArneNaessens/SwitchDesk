@@ -41,4 +41,9 @@ func TestAfterChange(t *testing.T) {
 	if cur[0].Name != "DEFAULT" || len(cur[0].Untagged) != 3 || len(cur[1].Tagged) != 1 {
 		t.Fatalf("the current table must not be changed: %+v", cur)
 	}
+
+	got = AfterChange(cur, VLANChange{Action: "update", ID: 20, AddUntagged: []string{"4"}, AddTagged: []string{"24"}})
+	if !reflect.DeepEqual(got[1].Untagged, []string{"4"}) || !reflect.DeepEqual(got[1].Tagged, []string{"24"}) {
+		t.Fatalf("ports added again are listed twice: %+v", got[1])
+	}
 }

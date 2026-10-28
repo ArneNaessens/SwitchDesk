@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.3
+
+- **Change a VLAN on many switches at once.** The VLANs page has **Edit** and **Delete** on every row and a **New VLAN** button. Rename a VLAN everywhere, add it to switches, or remove it, then review the exact commands for each switch before anything is sent. Contributed by [Arne Naessens](https://github.com/ArneNaessens) in [#6](https://github.com/jaba0x/SwitchDesk/pull/6). Thank you!
+- VLAN changes show up right away instead of after the next read of the switch.
+- When a page can't be shown, SwitchDesk now says so, with details you can copy into an issue, instead of showing nothing ([#4](https://github.com/jaba0x/SwitchDesk/issues/4), [#7](https://github.com/jaba0x/SwitchDesk/issues/7)).
+- With many switches, starting up could take longer than the window waited for, which left it empty. It now waits up to 30 seconds and shows "Starting SwitchDesk…" meanwhile ([#7](https://github.com/jaba0x/SwitchDesk/issues/7)).
+
 ## 0.9.2
 
 This release fixes security issues found in a code review and by GitHub code scanning (CodeQL). Please update.

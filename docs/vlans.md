@@ -55,3 +55,15 @@ end
 ![VLAN matrix](images/vlan-matrix.png){ .shot }
 
 The **VLANs** page lists every VLAN on every switch. Each cell shows how many ports carry that VLAN there; a dot means the switch doesn't have it. When the same VLAN ID has different names on different switches, the row is marked **names differ** and the odd ones out are highlighted. Click a cell to open that switch's VLAN tab.
+
+### Change a VLAN on many switches at once
+
+Each row has **Edit** and **Delete** buttons, and the page has **New VLAN**:
+
+- **Edit** opens the VLAN on every switch. Rename it everywhere, tick switches to add it, or untick switches to remove it. The **Change** column shows what will happen on each switch: add, rename, remove (with how many ports lose it), or no change.
+- **Delete** lists the switches that carry the VLAN, with each switch's name for it and how many ports use it. Untick the ones you want to keep it on. VLAN 1 can't be deleted.
+- **New VLAN** creates a new VLAN ID on the switches you tick. An ID that already exists on any switch is refused; use that row's **Edit** instead.
+
+**Review changes** shows the exact lines for every switch before anything is sent. **Apply** then goes through the switches one at a time and shows the result for each. A switch that rejects a line stops there without saving, and the others carry on. Port membership isn't set from here, because port names differ per switch; set it on each switch's VLANs tab. Instant On and disabled switches are listed but can't be ticked.
+
+Mass VLAN editing was contributed by [Arne Naessens](https://github.com/ArneNaessens).
