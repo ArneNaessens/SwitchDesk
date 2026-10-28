@@ -171,7 +171,7 @@ function renderDashboard() {
   }
   const pct = (n) => (d.total ? (n / d.total) * 100 : 0);
   const cats = {};
-  for (const i of d.issues.filter(sevMatch)) cats[i.category] = (cats[i.category] || 0) + 1;
+  for (const i of (d.issues || []).filter(sevMatch)) cats[i.category] = (cats[i.category] || 0) + 1;
   if (S.icat && !cats[S.icat]) S.icat = "";
   const refocus = document.activeElement?.id === "iq" ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const chip = (k, label, n) => `<button class="chip${S.filter === k ? " on" : ""}" onclick="S.filter='${k}';renderDashboard()">${label}${n !== undefined ? ` ${n}` : ""}</button>`;
@@ -220,7 +220,7 @@ function renderIssueList() {
   const box = $("#issuelist");
   if (!box || !S.dash) return;
   const words = (S.iq || "").toLowerCase().split(/\s+/).filter(Boolean);
-  const all = S.dash.issues.filter(sevMatch);
+  const all = (S.dash.issues || []).filter(sevMatch);
   const list = all.filter((i) => (!S.icat || i.category === S.icat) &&
     words.every((w) => `${i.title} ${i.switchName} ${i.detail} ${i.category}`.toLowerCase().includes(w)));
   const filtered = words.length || S.icat;
@@ -245,7 +245,7 @@ function plate(v) {
   const meta = v.disabled ? `<span class="faint">disabled</span>` : !v.status.online && v.status.checked ? `<span class="bad">offline ${ago(v.status.since)}</span>` :
     `${esc(v.host)}${v.status.latencyMs ? ` <span class="faint">${v.status.latencyMs} ms</span>` : ""}`;
   return `<div class="plate${v.disabled ? " off" : ""}" data-go="#/switch/${v.id}">
-    <div class="nm">${v.disabled ? `<span class="dot"></span>` : statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
+    <div class="nm">${v.disabled ? `<span class="dot"></span>` : statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${(v.issues || []).length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
     <div class="meta">${meta}</div>
     <div class="leds-wrap" style="grid-column:1/-1">${s?.ports?.length ? leds(s.ports, { ports: s.ports.filter((p) => p.blocking).map((p) => ({ port: p.name, state: "Blocking" })) }) : s ? `<div class="faint" style="font-size:12.5px">${esc(s.model || s.family)} ${s.portsTotal ? `· ${s.portsUp}/${s.portsTotal} ports up` : ""}</div>` : `<div class="faint" style="font-size:12.5px">No data collected yet</div>`}</div>
   </div>`;
@@ -290,7 +290,7 @@ function renderSwitches(soft) {
       <td title="${esc(s.family || "")}">${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${fwCell(v)}</td>
       <td class="num">${s.cpu >= 0 && s.cpu !== undefined ? s.cpu + "%" : ""}</td><td class="num">${s.memory >= 0 && s.memory !== undefined ? s.memory + "%" : ""}</td>
       <td class="num">${s.portsTotal ? `${s.portsUp}/${s.portsTotal}` : ""}</td><td>${esc(s.stpRole || "")}</td>
-      <td>${v.worst ? `<span class="sev ${v.worst}">${v.issues.length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td>
+      <td>${v.worst ? `<span class="sev ${v.worst}">${(v.issues || []).length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td>
       <td class="acts nogo">${canUpdate(v) ? `<button class="ib" title="Update firmware to ${esc(v.firmware.available)}" onclick="openUpgradeDialog(['${v.id}'])">${ICON.up}</button>` : ""}<button class="ib" title="${v.disabled ? "Enable" : "Disable"}" onclick="setDisabled(['${v.id}'], ${!v.disabled})">${v.disabled ? ICON.play : ICON.pause}</button><button class="ib danger" title="Delete" onclick="deleteSwitches(['${v.id}'])">${ICON.trash}</button></td></tr>`;
     }).join("")}</tbody></table>
     ${rows.length ? "" : `<div class="empty">No switches match “${esc(S.query)}”. <a onclick="clearSearch()">Clear search</a></div>`}`;
@@ -514,7 +514,7 @@ function tabOverview(d, snap) {
   return `${leds(snap.ports, st, true, snap.optics)}<div style="height:16px"></div>
   <div class="grid2">
     <section class="panel"><h2>Problems on this switch</h2>
-      ${d.issues.length ? d.issues.map(issueRow).join("") : `<div class="empty" style="padding:22px"><h3>Nothing to fix</h3></div>`}</section>
+      ${d.issues?.length ? d.issues.map(issueRow).join("") : `<div class="empty" style="padding:22px"><h3>Nothing to fix</h3></div>`}</section>
     <section class="panel"><h2>System</h2><div class="body"><dl class="kv">
       <dt>Hostname</dt><dd>${esc(f.hostname)}</dd><dt>Model</dt><dd>${esc(f.model)}</dd><dt>Serial</dt><dd class="mono">${esc(f.serial)}</dd>
       <dt>Base MAC</dt><dd class="mono">${esc(f.baseMac)}</dd><dt>Software</dt><dd class="mono">${esc(f.software)}</dd><dt>Uptime</dt><dd>${esc(f.uptime)}</dd>

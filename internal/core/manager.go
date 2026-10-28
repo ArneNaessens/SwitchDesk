@@ -589,6 +589,9 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 		} else {
 			issues = evaluate(sw, st, snap, set)
 		}
+		if issues == nil {
+			issues = []Issue{} // the UI expects a list, not null
+		}
 		sortIssues(issues)
 		v := SwitchView{Switch: sw, Status: *st, Summary: summarize(snap), Issues: issues, Firmware: m.firmwareFor(sw, snap)}
 		v.Firmware.Job = m.jobFor(sw.ID)
@@ -632,6 +635,12 @@ func (m *Manager) Dashboard() Dashboard {
 		d.Issues = append(d.Issues, v.Issues...)
 	}
 	d.Issues = append(d.Issues, networkIssues(snaps, names, buildTopology(infos, nil, false))...)
+	if d.Issues == nil {
+		d.Issues = []Issue{}
+	}
+	if d.Switches == nil {
+		d.Switches = []SwitchView{}
+	}
 	sortIssues(d.Issues)
 	for _, is := range d.Issues {
 		switch is.Severity {
@@ -659,7 +668,11 @@ func (m *Manager) Detail(id string) (Detail, error) {
 			m.mu.Lock()
 			snap := m.snaps[id]
 			m.mu.Unlock()
-			return Detail{SwitchView: v, Snapshot: snap, Backups: m.st.Backups(id)}, nil
+			backups := m.st.Backups(id)
+			if backups == nil {
+				backups = []store.Backup{}
+			}
+			return Detail{SwitchView: v, Snapshot: snap, Backups: backups}, nil
 		}
 	}
 	return Detail{}, errors.New("switch not found")

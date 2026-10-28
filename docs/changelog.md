@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.4
+
+- Fixed: clicking a switch that has no problems at all did nothing on the Switches page (it just jumped to the top). The switch's problem list arrived empty in a form the page didn't expect. The dashboard had the same weakness on a network with no problems. Thanks to [@aw-glaronia](https://github.com/aw-glaronia) for the report and the error details ([#4](https://github.com/jaba0x/SwitchDesk/issues/4)).
+
 ## 0.9.3
 
 - **Change a VLAN on many switches at once.** The VLANs page has **Edit** and **Delete** on every row and a **New VLAN** button. Rename a VLAN everywhere, add it to switches, or remove it, then review the exact commands for each switch before anything is sent. Contributed by [Arne Naessens](https://github.com/ArneNaessens) in [#6](https://github.com/jaba0x/SwitchDesk/pull/6). Thank you!
