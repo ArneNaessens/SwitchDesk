@@ -88,10 +88,9 @@ func ParseConfigAOSS(cfg string) ([]VLAN, Security, bool) {
 				c = strings.Fields(c)[0]
 			}
 			sec.SNMPCommunities = append(sec.SNMPCommunities, c)
-		case strings.HasPrefix(h, "sntp server ") || strings.HasPrefix(h, "ntp server ") || strings.HasPrefix(h, "timesync"):
-			if strings.Contains(h, "server") {
-				fs := strings.Fields(h)
-				sec.NTPServers = append(sec.NTPServers, lastIPOrHost(fs))
+		case strings.HasPrefix(h, "sntp server ") || strings.HasPrefix(h, "ntp server ") || strings.HasPrefix(h, "ntp server-name "):
+			if s := ntpServerAOSS(h); s != "" {
+				sec.NTPServers = append(sec.NTPServers, s)
 			}
 		case strings.HasPrefix(h, "logging ") && !strings.HasPrefix(h, "logging severity") && !strings.HasPrefix(h, "logging facility") && !strings.HasPrefix(h, "logging filter"):
 			fs := strings.Fields(h)
@@ -326,11 +325,16 @@ func looksLikeHost(s string) bool {
 	return regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+$|^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`).MatchString(s)
 }
 
-func lastIPOrHost(fs []string) string {
-	for i := len(fs) - 1; i >= 0; i-- {
-		if looksLikeHost(fs[i]) {
-			return fs[i]
-		}
+// ntpServerAOSS returns the server in "sntp server priority 1 <addr>",
+// "ntp server <addr> iburst" or `ntp server-name "<name>" iburst`.
+func ntpServerAOSS(h string) string {
+	fs := strings.Fields(h)
+	i := 2
+	if len(fs) > 4 && fs[2] == "priority" {
+		i = 4
 	}
-	return fs[len(fs)-1]
+	if i >= len(fs) {
+		return ""
+	}
+	return unquote(fs[i])
 }
