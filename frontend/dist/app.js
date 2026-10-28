@@ -145,6 +145,7 @@ async function refreshData() {
   if (page === "switch" && S.detail) updateDetailHead();
   if (page === "map") SDMap.reload();
   if (page === "firmware") renderFirmware(true);
+  if (page === "vlans") renderVLANs(true);
 }
 
 // ---------- dashboard ----------
@@ -1151,17 +1152,26 @@ function showMapCard(n, topo) {
 }
 
 // ---------- VLAN matrix ----------
-async function renderVLANs() {
+// commonName is the name most switches give a VLAN.
+function commonName(data, id) {
+  const names = {};
+  data.forEach((s) => { const v = (s.vlans || []).find((x) => x.id === id); if (v?.name) names[v.name] = (names[v.name] || 0) + 1; });
+  return { common: Object.entries(names).sort((a, b) => b[1] - a[1])[0]?.[0] || "", names };
+}
+
+async function renderVLANs(soft) {
   const data = await call("VLANOverview");
+  S.vlanData = data;
+  if (soft && (S.modalOpen || S.route[0] !== "vlans")) return;
   if (!data.length) {
     $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1></div><div class="panel"><div class="empty"><h3>No VLAN data yet</h3><p>VLANs appear here once switches have been collected.</p></div></div></div>`;
     return;
   }
+  const scroll = $("#vlmx") ? [$("#vlmx").scrollLeft, $("#vlmx").scrollTop] : null;
+  const canEdit = data.some((s) => s.editable);
   const ids = [...new Set(data.flatMap((s) => s.vlans.map((v) => v.id)))].sort((a, b) => a - b);
   const rows = ids.map((id) => {
-    const names = {};
-    data.forEach((s) => { const v = s.vlans.find((x) => x.id === id); if (v?.name) names[v.name] = (names[v.name] || 0) + 1; });
-    const common = Object.entries(names).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    const { common, names } = commonName(data, id);
     const cells = data.map((s) => {
       const v = s.vlans.find((x) => x.id === id);
       if (!v) return `<td class="faint">·</td>`;
@@ -1170,11 +1180,188 @@ async function renderVLANs() {
       return `<td><a class="cellv ${diff ? "diff" : "has"}" data-go="#/switch/${s.id}/vlans" title="${esc(v.name)}: ${v.untagged?.length || 0} untagged, ${v.tagged?.length || 0} tagged${diff ? " (name differs)" : ""}">${n || "–"}</a></td>`;
     }).join("");
     const mism = Object.keys(names).length > 1;
-    return `<tr><td><span class="mono">${id}</span> ${esc(common)}${mism ? ` <span class="sev warning" title="${esc(Object.keys(names).join(", "))}">names differ</span>` : ""}</td>${cells}</tr>`;
+    const del = id !== 1 && data.some((s) => s.editable && s.vlans.some((x) => x.id === id));
+    const edit = canEdit ? `<td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="openNetVLAN(${id})">Edit</button>${del ? ` <button class="btn small danger" onclick="openNetVLANDelete(${id})">Delete</button>` : ""}</td>` : "";
+    return `<tr><td><span class="mono">${id}</span> ${esc(common)}${mism ? ` <span class="sev warning" title="${esc(Object.keys(names).join(", "))}">names differ</span>` : ""}</td>${cells}${edit}</tr>`;
   });
-  $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1><span class="sub">${ids.length} across ${plural(data.length, "switch").replace("switchs", "switches")}</span></div>
-    <p class="muted" style="margin-top:-6px">Each cell shows how many ports carry the VLAN on that switch. Click one to edit it there.</p>
-    <div class="panel" style="overflow:auto"><table class="matrix"><thead><tr><th>VLAN</th>${data.map((s) => `<th><a data-go="#/switch/${s.id}/vlans" style="color:inherit">${esc(s.name)}</a></th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
+  $("#main").innerHTML = `<div class="page"><div class="head"><h1>VLANs</h1><span class="sub">${ids.length} across ${plural(data.length, "switch").replace("switchs", "switches")}</span><span class="grow"></span>
+      ${canEdit ? `<button class="btn primary" onclick="openNetVLAN()">${ICON.plus}New VLAN</button>` : ""}</div>
+    <p class="muted" style="margin-top:-6px">Each cell shows how many ports carry the VLAN on that switch. Click one to edit it there${canEdit ? ", or use Edit to change the VLAN on every switch at once" : ""}.</p>
+    <div class="panel" id="vlmx" style="overflow:auto"><table class="matrix"><thead><tr><th>VLAN</th>${data.map((s) => `<th><a data-go="#/switch/${s.id}/vlans" style="color:inherit" title="${esc(s.family)}${s.editable ? "" : ": VLANs " + esc(s.readOnly)}">${esc(s.name)}</a></th>`).join("")}${canEdit ? "<th></th>" : ""}</tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
+  if (scroll) [$("#vlmx").scrollLeft, $("#vlmx").scrollTop] = scroll;
+}
+
+// ---------- network-wide VLAN editor ----------
+// The VLAN's name and which switches carry it are set once; each switch then
+// gets the create, rename or delete it needs. Port membership differs per
+// switch and stays on each switch's VLANs tab.
+function netVLANPlan(s, id, name, want, save) {
+  const v = (s.vlans || []).find((x) => x.id === id);
+  if (want && !v) return { action: "create", id, name, save };
+  if (!want && v) return { action: "delete", id, save };
+  if (want && v && name && v.name !== name) return { action: "update", id, name, save };
+  return null;
+}
+
+function netVLANLabel(s, ch) {
+  if (!ch) return `<span class="faint">no change</span>`;
+  if (ch.action === "create") return `<span class="sev okchip">add</span>`;
+  if (ch.action === "update") return `<span class="sev info">rename</span>`;
+  const v = s.vlans.find((x) => x.id === ch.id);
+  const n = (v?.untagged?.length || 0) + (v?.tagged?.length || 0);
+  return `<span class="sev critical">remove</span>${n ? ` <span class="faint" style="font-size:12px">from ${plural(n, "port")}</span>` : ""}`;
+}
+
+function openNetVLAN(id) {
+  const data = S.vlanData || [];
+  const isNew = !id;
+  const common = isNew ? "" : commonName(data, id).common;
+  const has = (s, vid) => (s.vlans || []).some((x) => x.id === vid);
+  const want = {};
+  for (const s of data) want[s.id] = isNew ? s.editable : has(s, id);
+  const m = modal(`<h2>${isNew ? "New VLAN on several switches" : `VLAN ${id} on all switches`}</h2><div class="body">
+    <div class="row"><label class="f" style="flex:0 0 120px"><span>VLAN ID</span><input type="number" id="nvid" min="1" max="4094" value="${id || ""}" ${isNew ? "" : "disabled"}></label>
+      <label class="f"><span>Name</span><input type="text" id="nvname" maxlength="32" value="${esc(common)}" placeholder="${isNew ? "" : "leave empty to keep each switch's name"}"></label></div>
+    <div class="muted" style="font-size:13px;margin-bottom:8px">Tick the switches that should carry this VLAN. Ports stay as they are; set port membership on each switch's VLANs tab.</div>
+    <table><thead><tr><th style="width:28px"><input type="checkbox" id="nvall" title="All switches that can be changed"></th><th>Switch</th><th>Now</th><th>Change</th></tr></thead><tbody id="nvrows"></tbody></table>
+    <div style="height:14px"></div><label class="check"><input type="checkbox" id="nvsave" checked> Save to startup config (write memory)</label>
+    <div id="nverr"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="nvprev">Review changes</button></div>`, true);
+  const vid = () => +$("#nvid", m).value;
+  const plans = () => {
+    const name = $("#nvname", m).value.trim(), save = $("#nvsave", m).checked;
+    return data.map((s) => ({ s, ch: s.editable && vid() ? netVLANPlan(s, vid(), name, want[s.id], save) : null }));
+  };
+  const draw = () => {
+    const v = vid();
+    $("#nvrows", m).innerHTML = plans().map(({ s, ch }) => {
+      const cur = (s.vlans || []).find((x) => x.id === v);
+      const locked = !s.editable || (v === 1 && cur); // VLAN 1 can't be deleted
+      const now = cur ? (cur.name ? esc(cur.name) : `<span class="faint">no name</span>`) : `<span class="faint">not present</span>`;
+      return `<tr><td><input type="checkbox" data-s="${s.id}" ${want[s.id] ? "checked" : ""} ${locked ? "disabled" : ""}></td>
+        <td>${esc(s.name)} <span class="faint" style="font-size:12px">${esc(s.family)}</span>${s.online ? "" : ` <span class="sev warning">offline</span>`}</td>
+        <td>${v ? now : ""}</td><td>${s.editable ? (v ? netVLANLabel(s, ch) : "") : `<span class="faint" style="font-size:12px">VLANs ${esc(s.readOnly)}</span>`}</td></tr>`;
+    }).join("");
+    const ed = data.filter((s) => s.editable);
+    $("#nvall", m).checked = ed.length > 0 && ed.every((s) => want[s.id]);
+  };
+  $("#nvrows", m).addEventListener("change", (e) => {
+    const c = e.target.closest("[data-s]");
+    if (c) { want[c.dataset.s] = c.checked; draw(); }
+  });
+  $("#nvall", m).onchange = (e) => {
+    for (const s of data) if (s.editable && !(vid() === 1 && has(s, 1))) want[s.id] = e.target.checked;
+    draw();
+  };
+  $("#nvid", m).oninput = () => {
+    for (const s of data) want[s.id] = s.editable; // a new VLAN goes on every switch that can take it
+    draw();
+  };
+  $("#nvname", m).oninput = draw;
+  $("#nvsave", m).onchange = draw;
+  $("#nvprev", m).onclick = async () => {
+    const err = (t) => { $("#nverr", m).innerHTML = `<div class="msg err">${esc(t)}</div>`; };
+    const v = vid();
+    if (!(v >= 1 && v <= 4094)) return err("VLAN ID must be 1-4094.");
+    if (isNew && data.some((s) => has(s, v))) return err(`VLAN ${v} already exists on some switches. Close this and use Edit on its row instead.`);
+    const todo = plans().filter((p) => p.ch);
+    if (!todo.length) return err("Nothing changed.");
+    const b = $("#nvprev", m);
+    b.disabled = true;
+    const previews = await Promise.all(todo.map(async (p) => {
+      try { return { ...p, cmds: await call("PreviewVLAN", p.s.id, p.ch) }; } catch (e) { return { ...p, error: e.message }; }
+    }));
+    netVLANReview(v, previews);
+  };
+  draw();
+}
+
+// Deletes a VLAN from the ticked switches. Only switches that carry it and can
+// be changed are offered; the review step is the same as for edits.
+function openNetVLANDelete(id) {
+  const data = (S.vlanData || []).filter((s) => (s.vlans || []).some((x) => x.id === id));
+  const name = commonName(data, id).common;
+  const pick = {};
+  for (const s of data) pick[s.id] = s.editable;
+  const m = modal(`<h2>Delete VLAN ${id}${name ? ` (${esc(name)})` : ""}</h2><div class="body">
+    <div class="muted" style="font-size:13px;margin-bottom:8px">Tick the switches to delete this VLAN from. Ports that carry it lose it.</div>
+    <table><thead><tr><th style="width:28px"><input type="checkbox" id="ndall" title="All switches that can be changed"></th><th>Switch</th><th>Name</th><th>Ports</th></tr></thead><tbody id="ndrows"></tbody></table>
+    <div style="height:14px"></div><label class="check"><input type="checkbox" id="ndsave" checked> Save to startup config (write memory)</label>
+    <div id="nderr"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn danger" id="ndprev">Review changes</button></div>`, true);
+  const draw = () => {
+    $("#ndrows", m).innerHTML = data.map((s) => {
+      const v = s.vlans.find((x) => x.id === id);
+      const n = (v.untagged?.length || 0) + (v.tagged?.length || 0);
+      return `<tr><td><input type="checkbox" data-s="${s.id}" ${pick[s.id] ? "checked" : ""} ${s.editable ? "" : "disabled"}></td>
+        <td>${esc(s.name)} <span class="faint" style="font-size:12px">${esc(s.family)}</span>${s.online ? "" : ` <span class="sev warning">offline</span>`}</td>
+        <td>${v.name ? esc(v.name) : `<span class="faint">no name</span>`}</td>
+        <td>${s.editable ? (n ? plural(n, "port") : `<span class="faint">none</span>`) : `<span class="faint" style="font-size:12px">VLANs ${esc(s.readOnly)}</span>`}</td></tr>`;
+    }).join("");
+    const ed = data.filter((s) => s.editable);
+    $("#ndall", m).checked = ed.length > 0 && ed.every((s) => pick[s.id]);
+  };
+  $("#ndrows", m).addEventListener("change", (e) => {
+    const c = e.target.closest("[data-s]");
+    if (c) { pick[c.dataset.s] = c.checked; draw(); }
+  });
+  $("#ndall", m).onchange = (e) => {
+    for (const s of data) if (s.editable) pick[s.id] = e.target.checked;
+    draw();
+  };
+  $("#ndprev", m).onclick = async () => {
+    const save = $("#ndsave", m).checked;
+    const todo = data.filter((s) => s.editable && pick[s.id]).map((s) => ({ s, ch: { action: "delete", id, save } }));
+    if (!todo.length) { $("#nderr", m).innerHTML = `<div class="msg err">Tick at least one switch.</div>`; return; }
+    $("#ndprev", m).disabled = true;
+    const previews = await Promise.all(todo.map(async (p) => {
+      try { return { ...p, cmds: await call("PreviewVLAN", p.s.id, p.ch) }; } catch (e) { return { ...p, error: e.message }; }
+    }));
+    netVLANReview(id, previews);
+  };
+  draw();
+}
+
+function netVLANReview(id, items) {
+  const ok = items.filter((p) => !p.error);
+  const removes = ok.filter((p) => p.ch.action === "delete").length;
+  const block = (p, i) => `<div class="panel" style="margin:0 0 10px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><b>${esc(p.s.name)}</b>${netVLANLabel(p.s, p.ch)}<span class="grow" style="flex:1"></span><span id="nvst${i}"></span></div>
+      ${p.error ? `<div class="msg err">${esc(p.error)}. This switch is skipped.</div>` : `<pre class="code mono" id="nvtx${i}" style="margin:0">${esc(p.cmds.join("\n"))}</pre>`}</div>`;
+  const m = modal(`<h2>Review VLAN ${id} changes</h2><div class="body">
+    <p class="muted" style="margin-top:0">${plural(ok.length, "switch").replace("switchs", "switches")} will be changed one after the other. On each switch, sending stops at the first line it rejects${ok[0]?.ch.save ? ", and nothing is saved to startup config there" : ""}. A failure on one switch doesn't stop the others.</p>
+    ${removes ? `<div class="msg err" style="margin-bottom:12px">VLAN ${id} is removed from ${plural(removes, "switch").replace("switchs", "switches")}. Ports that carried it lose it.</div>` : ""}
+    ${items.map(block).join("")}<div id="nvres"></div></div>
+    <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="nvapply" ${ok.length ? "" : "disabled"}>Apply to ${plural(ok.length, "switch").replace("switchs", "switches")}</button></div>`, true);
+  $("#nvapply", m).onclick = async () => {
+    const b = $("#nvapply", m);
+    b.disabled = true;
+    b.textContent = "Sending…";
+    $("[data-close]", m).disabled = true;
+    let good = 0;
+    for (const [i, p] of items.entries()) {
+      if (p.error) continue;
+      const st = $(`#nvst${i}`, m);
+      st.innerHTML = `<span class="faint">sending…</span>`;
+      try {
+        const r = await call("ApplyVLAN", p.s.id, p.ch);
+        $(`#nvtx${i}`, m).textContent = r.transcript.join("\n");
+        st.innerHTML = r.ok ? `<span class="sev okchip">done</span>` : `<span class="sev critical" title="${esc(r.error)}">failed</span>`;
+        if (!r.ok) $(`#nvtx${i}`, m).insertAdjacentHTML("afterend", `<div class="msg err">${esc(r.error)}</div>`);
+        if (r.ok) good++;
+      } catch (e) {
+        st.innerHTML = `<span class="sev critical">failed</span>`;
+        $(`#nvtx${i}`, m).insertAdjacentHTML("afterend", `<div class="msg err">${esc(e.message)}</div>`);
+      }
+    }
+    $("#nvres", m).innerHTML = good === ok.length
+      ? `<div class="msg okm">Done on ${plural(good, "switch").replace("switchs", "switches")}. They're being re-read.</div>`
+      : `<div class="msg err">${good} of ${ok.length} switches changed. See the errors above.</div>`;
+    b.remove();
+    const c = $("[data-close]", m);
+    c.disabled = false;
+    c.textContent = "Close";
+  };
 }
 
 // ---------- settings ----------

@@ -146,6 +146,34 @@ func TestDisabledSwitch(t *testing.T) {
 	}
 }
 
+func TestVLANOverviewEditable(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cx, _ := st.SaveSwitch(store.Switch{Host: "10.9.9.1"})
+	paused, _ := st.SaveSwitch(store.Switch{Host: "10.9.9.2"})
+	web, _ := st.SaveSwitch(store.Switch{Host: "10.9.9.3", Web: true})
+	st.SetDisabled([]string{paused.ID}, true)
+	m := New(st, nil)
+	m.snaps[cx.ID] = &aruba.Snapshot{Family: aruba.FamilyAOSCX, VLANs: []aruba.VLAN{{ID: 1}}}
+	m.snaps[paused.ID] = &aruba.Snapshot{Family: aruba.FamilyAOSS}
+	m.snaps[web.ID] = &aruba.Snapshot{Family: aruba.FamilyInstantOn}
+	got := map[string]SwitchVLANs{}
+	for _, s := range m.VLANOverview() {
+		got[s.ID] = s
+	}
+	if !got[cx.ID].Editable || got[cx.ID].Family != "AOS-CX" || len(got[cx.ID].VLANs) != 1 {
+		t.Fatalf("AOS-CX switch: %+v", got[cx.ID])
+	}
+	if got[paused.ID].Editable || got[paused.ID].ReadOnly != "disabled" {
+		t.Fatalf("disabled switch: %+v", got[paused.ID])
+	}
+	if got[web.ID].Editable || got[web.ID].ReadOnly == "" {
+		t.Fatalf("web switch: %+v", got[web.ID])
+	}
+}
+
 // Two branches joined only by routing reuse 192.168.13.0/24. A switch in the
 // first branch sees a local device at 192.168.13.2, the same address as the
 // managed switch in the other branch. That must not draw a link between them.

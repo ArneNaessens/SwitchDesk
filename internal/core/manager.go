@@ -754,6 +754,17 @@ func (m *Manager) ApplyVLAN(id string, ch aruba.VLANChange) (aruba.ApplyResult, 
 	if err != nil {
 		return res, err
 	}
+	if res.OK {
+		// show the change now; the re-read below takes a while and confirms it
+		m.mu.Lock()
+		if s := m.snaps[id]; s != nil {
+			next := *s
+			next.VLANs = aruba.AfterChange(s.VLANs, ch)
+			m.snaps[id] = &next
+		}
+		m.mu.Unlock()
+		m.changed()
+	}
 	go m.Enqueue(id)
 	return res, nil
 }
@@ -795,6 +806,25 @@ type SwitchVLANs struct {
 	Name   string       `json:"name"`
 	Online bool         `json:"online"`
 	VLANs  []aruba.VLAN `json:"vlans"`
+	Family string       `json:"family"`
+	// Editable is set when VLAN changes can be sent over SSH; ReadOnly says why not.
+	Editable bool   `json:"editable"`
+	ReadOnly string `json:"readOnly,omitempty"`
+}
+
+// vlanReadOnly says why a switch's VLANs can't be changed from SwitchDesk, or "" if they can.
+func vlanReadOnly(sw store.Switch, snap *aruba.Snapshot) string {
+	switch {
+	case sw.Disabled:
+		return "disabled"
+	case sw.Cloud != nil:
+		return "changed in the Instant On app or portal"
+	case sw.Web || snap.Family == aruba.FamilyInstantOn:
+		return "changed on the switch's web page"
+	case snap.Family != aruba.FamilyAOSS && snap.Family != aruba.FamilyAOSCX:
+		return "family not detected yet"
+	}
+	return ""
 }
 
 // VLANOverview returns every collected switch's VLAN table for the network-wide matrix.
@@ -812,7 +842,9 @@ func (m *Manager) VLANOverview() []SwitchVLANs {
 		if st := m.status[sw.ID]; st != nil {
 			online = st.Online
 		}
-		out = append(out, SwitchVLANs{ID: sw.ID, Name: displayName(sw, snap), Online: online, VLANs: snap.VLANs})
+		ro := vlanReadOnly(sw, snap)
+		out = append(out, SwitchVLANs{ID: sw.ID, Name: displayName(sw, snap), Online: online, VLANs: snap.VLANs,
+			Family: snap.Family.Label(), Editable: ro == "", ReadOnly: ro})
 	}
 	return out
 }
