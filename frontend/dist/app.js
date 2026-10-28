@@ -70,7 +70,7 @@ function leds(ports, stp, big, optics) {
     const rows = g.ports.length > 8 ? 2 : 1;
     const cells = g.ports.map((p) => {
       const cls = !p.enabled ? "x" : p.loop ? "l" : blocking.has(p.name) ? "b" : p.up ? "u" : "";
-      const tip = `Port ${p.name}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${opt[p.name]?.rx?.length ? `, Rx ${opt[p.name].rx.map(dbm).join("/")} dBm` : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}${p.description ? " (" + p.description + ")" : ""}`;
+      const tip = `Port ${p.name}${p.description ? " · " + p.description : ""}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${opt[p.name]?.rx?.length ? `, Rx ${opt[p.name].rx.map(dbm).join("/")} dBm` : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}`;
       return `<i class="${cls}" title="${esc(tip)}"></i>`;
     }).join("");
     return `<span class="ledgrp" style="--r:${rows}">${cells}</span>`;
@@ -583,11 +583,11 @@ function tabPorts(snap) {
   // a disabled port is down too; say which, so a shut port isn't taken for a dead link
   const state = (x) => (!x.enabled ? ["x", "Disabled", ""] : x.up ? ["u", "Up", "ok"] : ["", "Down", "faint"]);
   return `${leds(p, snap.stp, true, snap.optics)}<div style="margin:8px 0 16px">${ledKey(p)}</div>${opticsPanel(snap)}<section class="panel">
-    <table><thead><tr><th>Port</th><th>Status</th><th>Speed</th><th>Type</th><th>VLANs</th><th>Description</th></tr></thead><tbody>
+    <table><thead><tr><th>Port</th><th>Name</th><th>Status</th><th>Speed</th><th>Type</th><th>VLANs</th></tr></thead><tbody>
     ${p.map((x) => {
       const [c, label, cls] = state(x);
-      return `<tr><td class="mono">${esc(x.name)}</td><td class="${cls}"><span class="ledkey" style="color:inherit;font-size:inherit"><span><i class="${c}"></i>${label}</span></span></td>
-      <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td><td>${esc(x.description)}</td></tr>`;
+      return `<tr><td class="mono">${esc(x.name)}</td><td>${esc(x.description)}</td><td class="${cls}"><span class="ledkey" style="color:inherit;font-size:inherit"><span><i class="${c}"></i>${label}</span></span></td>
+      <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td></tr>`;
     }).join("")}
     </tbody></table></section>`;
 }

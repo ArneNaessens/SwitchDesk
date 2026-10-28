@@ -338,3 +338,34 @@ func ntpServerAOSS(h string) string {
 	}
 	return unquote(fs[i])
 }
+
+var ifaceHeaderRe = regexp.MustCompile(`^interface (\S+)$`)
+
+// PortNames reads the port names from a running config: `name "..."` in an
+// AOS-S interface block, `description ...` in an AOS-CX one. A block for a
+// range of ports ("interface 1-4") names each of them.
+func PortNames(cfg string) map[string]string {
+	out := map[string]string{}
+	for _, b := range splitConfig(cfg) {
+		m := ifaceHeaderRe.FindStringSubmatch(b.header)
+		if m == nil || strings.HasPrefix(m[1], "vlan") || m[1] == "loopback" || m[1] == "mgmt" {
+			continue
+		}
+		name := ""
+		for _, l := range b.lines {
+			switch {
+			case strings.HasPrefix(l, "name "):
+				name = unquote(strings.TrimSpace(strings.TrimPrefix(l, "name ")))
+			case strings.HasPrefix(l, "description "):
+				name = unquote(strings.TrimSpace(strings.TrimPrefix(l, "description ")))
+			}
+		}
+		if name == "" {
+			continue
+		}
+		for _, p := range ExpandPorts(m[1]) {
+			out[p] = name
+		}
+	}
+	return out
+}

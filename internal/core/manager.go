@@ -503,12 +503,13 @@ type Summary struct {
 
 // PortLED is the minimum the faceplate needs per port.
 type PortLED struct {
-	Name     string `json:"name"`
-	Up       bool   `json:"up"`
-	Enabled  bool   `json:"enabled"`
-	Blocking bool   `json:"blocking"`
-	Type     string `json:"type"`
-	Speed    string `json:"speed"`
+	Name        string `json:"name"`
+	Up          bool   `json:"up"`
+	Enabled     bool   `json:"enabled"`
+	Blocking    bool   `json:"blocking"`
+	Type        string `json:"type"`
+	Speed       string `json:"speed"`
+	Description string `json:"description,omitempty"` // the port's configured name
 }
 
 type SwitchView struct {
@@ -550,7 +551,7 @@ func summarize(snap *aruba.Snapshot) *Summary {
 		}
 	}
 	for _, p := range snap.Ports {
-		s.Ports = append(s.Ports, PortLED{Name: p.Name, Up: p.Up, Enabled: p.Enabled, Blocking: blocking[p.Name], Type: p.Type, Speed: p.Speed})
+		s.Ports = append(s.Ports, PortLED{Name: p.Name, Up: p.Up, Enabled: p.Enabled, Blocking: blocking[p.Name], Type: p.Type, Speed: p.Speed, Description: p.Description})
 		s.PortsTotal++
 		if p.Up {
 			s.PortsUp++
