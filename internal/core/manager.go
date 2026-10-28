@@ -87,6 +87,9 @@ func (m *Manager) Start() {
 	go m.jobWorker(rebootLock, slot)
 	go m.jobWorker(rebootLock, slot)
 	go m.autoLoop()
+	if m.lib != nil {
+		go m.lib.Rescan() // pick up firmware copied in by hand, without holding up startup
+	}
 }
 
 // Stop cancels polling and waits (up to 30s) for running collections, so the

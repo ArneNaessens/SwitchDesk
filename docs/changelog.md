@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.5
+
+- Fixed: with a big firmware folder, or files in it that aren't switch images, the window could stay blank at startup. SwitchDesk read every file in the folder before the window could load, and read files it didn't recognise again on every start. Now it starts from the saved list of images and looks at the folder in the background. Files it can't recognise are remembered and skipped until they change. Thanks to [@aw-glaronia](https://github.com/aw-glaronia) for finding that clearing the firmware folder helped, and to [@Y4nnickB](https://github.com/Y4nnickB) for the report ([#7](https://github.com/jaba0x/SwitchDesk/issues/7)).
+
 ## 0.9.4
 
 - Fixed: clicking a switch that has no problems at all did nothing on the Switches page (it just jumped to the top). The switch's problem list arrived empty in a form the page didn't expect. The dashboard had the same weakness on a network with no problems. Thanks to [@aw-glaronia](https://github.com/aw-glaronia) for the report and the error details ([#4](https://github.com/jaba0x/SwitchDesk/issues/4)).

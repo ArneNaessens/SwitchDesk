@@ -35,17 +35,40 @@ type Library struct {
 	dir string
 	mu  sync.Mutex
 	idx map[string]Image
+	// skip holds files whose version couldn't be detected, keyed by name, so
+	// they aren't read again on every scan until they change.
+	skip map[string]stamp
+
+	scanMu sync.Mutex // one scan at a time
 }
 
+// stamp identifies a file's content cheaply: same size and time, same file.
+type stamp struct {
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"modTime"`
+}
+
+// OpenLibrary loads the saved index. It doesn't read the images themselves,
+// so it returns quickly however big the folder is; call Rescan (for example
+// in the background) to pick up files added by hand.
 func OpenLibrary(dir string) (*Library, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	l := &Library{dir: dir, idx: map[string]Image{}}
+	l := &Library{dir: dir, idx: map[string]Image{}, skip: map[string]stamp{}}
 	if b, err := os.ReadFile(filepath.Join(dir, "index.json")); err == nil {
 		json.Unmarshal(b, &l.idx)
 	}
-	l.reconcile()
+	if b, err := os.ReadFile(filepath.Join(dir, "unrecognized.json")); err == nil {
+		json.Unmarshal(b, &l.skip)
+	}
+	l.mu.Lock()
+	for name := range l.idx {
+		if _, err := checkName(name); err != nil {
+			delete(l.idx, name)
+		}
+	}
+	l.mu.Unlock()
 	return l, nil
 }
 
@@ -53,27 +76,21 @@ func (l *Library) Dir() string { return l.dir }
 
 func (l *Library) saveLocked() error {
 	b, _ := json.MarshalIndent(l.idx, "", "  ")
+	s, _ := json.MarshalIndent(l.skip, "", "  ")
+	os.WriteFile(filepath.Join(l.dir, "unrecognized.json"), s, 0o600)
 	return os.WriteFile(filepath.Join(l.dir, "index.json"), b, 0o600)
 }
 
 // reconcile drops index entries whose file is gone and indexes files that
-// were copied into the folder by hand.
+// were copied into the folder by hand. Reading new images (hashing them,
+// looking for their version) happens without holding the library lock, so
+// the rest of the app isn't held up by a big folder.
 func (l *Library) reconcile() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	changed := false
-	for name := range l.idx {
-		if _, err := checkName(name); err != nil {
-			delete(l.idx, name)
-			changed = true
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(l.dir, name)); err != nil {
-			delete(l.idx, name)
-			changed = true
-		}
-	}
+	l.scanMu.Lock()
+	defer l.scanMu.Unlock()
+
 	ents, _ := os.ReadDir(l.dir)
+	present := map[string]stamp{}
 	for _, e := range ents {
 		if !e.Type().IsRegular() || !isImageName(e.Name()) {
 			continue
@@ -95,17 +112,74 @@ func (l *Library) reconcile() {
 			}
 			name = safe
 		}
-		if _, ok := l.idx[name]; ok {
-			continue
+		if info, err := os.Stat(filepath.Join(l.dir, name)); err == nil {
+			present[name] = stamp{Size: info.Size(), ModTime: info.ModTime().UTC()}
 		}
-		if img, err := describe(filepath.Join(l.dir, name), "file"); err == nil {
-			l.idx[name] = img
+	}
+
+	// what's gone, and what's new and not known to be unreadable
+	l.mu.Lock()
+	changed := false
+	for name := range l.idx {
+		if _, ok := present[name]; !ok {
+			if _, err := os.Lstat(filepath.Join(l.dir, name)); err == nil {
+				continue // added through the app while this scan was running
+			}
+			delete(l.idx, name)
 			changed = true
 		}
+	}
+	for name, st := range l.skip {
+		if cur, ok := present[name]; !ok || cur != st {
+			delete(l.skip, name) // gone or changed: look at it again
+			changed = true
+		}
+	}
+	var todo []string
+	for name := range present {
+		_, known := l.idx[name]
+		_, skipped := l.skip[name]
+		if !known && !skipped {
+			todo = append(todo, name)
+		}
+	}
+	l.mu.Unlock()
+
+	found := map[string]Image{}
+	for _, name := range todo {
+		if img, err := describe(filepath.Join(l.dir, name), "file"); err == nil {
+			found[name] = img
+		}
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, name := range todo {
+		if _, ok := l.idx[name]; ok {
+			continue // added through the app meanwhile
+		}
+		if img, ok := found[name]; ok {
+			l.idx[name] = img
+		} else {
+			l.skip[name] = present[name]
+		}
+		changed = true
 	}
 	if changed {
 		l.saveLocked()
 	}
+}
+
+// Unrecognized lists image files whose version couldn't be detected.
+func (l *Library) Unrecognized() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []string
+	for name := range l.skip {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Rescan picks up files added to or removed from the folder by hand.
@@ -238,6 +312,7 @@ func (l *Library) finish(tmp, dst, source string) (Image, error) {
 	}
 	l.mu.Lock()
 	l.idx[img.File] = img
+	delete(l.skip, img.File)
 	l.saveLocked()
 	l.mu.Unlock()
 	return img, nil
