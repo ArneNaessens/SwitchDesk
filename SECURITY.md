@@ -4,7 +4,7 @@
 
 Please don't open a public issue or discussion for a security problem.
 
-Report it privately through GitHub instead: open the [Security tab](https://github.com/jaba0x/SwitchDesk/security) and click **Report a vulnerability**. Only you and I can see the report, and we can talk it through there. If that doesn't work for you, email jaba@jaba.ge.
+Report it privately through GitHub instead: open the [Security tab](https://github.com/jaba0x/SwitchDesk/security) and click **Report a vulnerability**. Only you and I can see the report, and we can talk it through there. If that doesn't work for you, email jaba@clihero.com.
 
 Tell me the version you tested, what an attacker could do, and how to reproduce it. A proof of concept helps a lot.
 
