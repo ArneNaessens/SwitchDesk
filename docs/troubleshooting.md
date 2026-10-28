@@ -28,6 +28,12 @@ The same goes for HTTPS. SwitchDesk remembers the certificate an AOS-CX switch s
 
 Older ProCurve and AOS-S firmware only speaks old SSH algorithms (`diffie-hellman-group14-sha1`, `aes-cbc`, `ssh-rsa`). SwitchDesk still accepts them so these switches keep working, but updating the switch firmware is the better fix.
 
+## "No CLI prompt within 20s"
+
+SwitchDesk signed in but didn't recognise the switch's prompt, so it waited and gave up. The message shows the last line the switch sent. If that line is the switch's prompt (its hostname followed by `#` or `>`), please [open an issue](https://github.com/jaba0x/SwitchDesk/issues) and paste it.
+
+Before 0.9.8 this happened to any switch whose hostname had a character other than letters, digits, `-`, `_` and `.`, such as `+`, `&`, `/`, a space or an umlaut. Updating fixes that.
+
 ## The switch was read, but some tabs are empty
 
 Different firmware versions word their output differently. Open **Raw output**, find the command for that tab, and check what the switch returned. If it says `Invalid input`, the command doesn't exist on that version. If the data is there but the tab is empty, please [open an issue](https://github.com/jaba0x/SwitchDesk/issues) with the raw output (with names and addresses masked); it makes a perfect test case.

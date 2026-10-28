@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.8
+
+- Fixed: switches whose hostname has a character such as `+`, `&`, `/`, a space or an umlaut couldn't be read. SwitchDesk didn't recognise their prompt and stopped with "no CLI prompt within 20s". Reported by [@MarcelW85](https://github.com/MarcelW85) and [@new-it](https://github.com/new-it) in [#10](https://github.com/jaba0x/SwitchDesk/issues/10).
+
 ## 0.9.7
 
 - **Port names.** The names set on the switch now show in the ports table and when you hover a port on any faceplate, for example "Port 3 · Printer-2nd-floor". SwitchDesk reads `name "..."` from the AOS-S config and the full `description` from AOS-CX. Names appear after the next read of each switch. Requested by [@MarcelW85](https://github.com/MarcelW85) in [#9](https://github.com/jaba0x/SwitchDesk/issues/9).
