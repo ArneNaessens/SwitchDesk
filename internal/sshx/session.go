@@ -49,12 +49,26 @@ type Session struct {
 	Hostname    string // learned from the first prompt
 	Fingerprint string // SHA256 host key fingerprint seen on this connect
 	Banner      string // everything printed before the first prompt
+
+	enter string // what ends a command line; "\n" unless SetEnter changed it
+}
+
+// SetEnter changes the key that ends a command. LANCOM's LCOS SX only acts on
+// a carriage return and ignores a bare newline.
+func (s *Session) SetEnter(e string) { s.enter = e }
+
+func (s *Session) eol() string {
+	if s.enter == "" {
+		return "\n"
+	}
+	return s.enter
 }
 
 var (
 	ansiCursor = regexp.MustCompile(`\x1b\[\d+;\d+[Hf]`)
 	ansiAny    = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Za-z]|\x1b[=>78EDM]`)
-	promptRe   = regexp.MustCompile(`(?m)^([A-Za-z0-9_.\-]+)(\([^)]*\))?\s?[#>]\s*$`)
+	// "+" is for LANCOM, whose prompt is the device name, e.g. "GS-2326P+(vlan)#"
+	promptRe   = regexp.MustCompile(`(?m)^([A-Za-z0-9_.+\-]+)(\([^)]*\))?\s?[#>]\s*$`)
 	moreRe     = regexp.MustCompile(`(?i)-- ?more ?--|press any key|--more--`)
 )
 
@@ -321,7 +335,7 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 		timeout = 30 * time.Second
 	}
 	s.reset()
-	if err := s.write(cmd + "\n"); err != nil {
+	if err := s.write(cmd + s.eol()); err != nil {
 		return "", err
 	}
 	deadline := time.Now().Add(timeout)
@@ -396,7 +410,7 @@ func (s *Session) Interrupt() {
 
 func (s *Session) Close() error {
 	if s.stdin != nil {
-		s.write("exit\n")
+		s.write("exit" + s.eol())
 	}
 	if s.sess != nil {
 		s.sess.Close()

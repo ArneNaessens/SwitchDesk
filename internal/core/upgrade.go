@@ -166,6 +166,9 @@ func (m *Manager) newJob(id, image string, reboot, auto bool) (*Job, error) {
 	if snap == nil || snap.CollectedAt.IsZero() {
 		return nil, fmt.Errorf("%s hasn't been read yet", name)
 	}
+	if snap.Family == aruba.FamilyLancom {
+		return nil, fmt.Errorf("%s: LANCOM firmware is updated from the switch's web page or the LANCOM Management Cloud", name)
+	}
 	if snap.Family != aruba.FamilyAOSS && snap.Family != aruba.FamilyAOSCX {
 		return nil, fmt.Errorf("%s: %s firmware is updated from the Instant On portal", name, snap.Family.Label())
 	}

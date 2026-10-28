@@ -42,7 +42,7 @@ func applyPortProbes(s *aruba.Snapshot, host string) {
 	wg.Wait()
 	s.Security.TelnetPort, s.Security.HTTPPort = telnet, web
 	s.Security.TelnetEnabled = telnet == "open"
-	if s.Family == aruba.FamilyAOSS {
+	if s.Family == aruba.FamilyAOSS || s.Family == aruba.FamilyLancom {
 		s.Security.HTTPPlain = web == "open"
 	}
 }

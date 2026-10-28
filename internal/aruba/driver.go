@@ -82,6 +82,12 @@ func Prepare(ctx context.Context, r Runner, f Family) {
 	case FamilyInstantOn:
 		r.Run(ctx, "terminal length 0", 5*time.Second)
 		r.Run(ctx, "terminal datadump", 5*time.Second)
+	case FamilyLancom:
+		// LCOS SX ignores a bare newline. It has no paging setting either; the
+		// session answers "--More--" itself.
+		if e, ok := r.(interface{ SetEnter(string) }); ok {
+			e.SetEnter("\r")
+		}
 	default:
 		r.Run(ctx, "no page", 5*time.Second)
 		r.Run(ctx, "terminal width 200", 5*time.Second)
@@ -90,6 +96,10 @@ func Prepare(ctx context.Context, r Runner, f Family) {
 
 // Detect runs "show version" and decides the family unless one is forced.
 func Detect(ctx context.Context, r Runner, forced Family, banner string) (Family, string) {
+	// LANCOM's login banner gives it away, and its menu CLI has no "show version"
+	if forced == FamilyLancom || (forced == "" || forced == FamilyAuto) && lancomBanner(banner) {
+		return FamilyLancom, ""
+	}
 	r.Run(ctx, "no page", 5*time.Second)
 	out, _ := r.Run(ctx, "show version", 20*time.Second)
 	if forced != "" && forced != FamilyAuto {
@@ -102,6 +112,12 @@ func Detect(ctx context.Context, r Runner, forced Family, banner string) (Family
 func Collect(ctx context.Context, r Runner, f Family, versionOut string) Snapshot {
 	start := time.Now()
 	s := Snapshot{Family: f, Raw: map[string]string{}}
+	if f == FamilyLancom {
+		collectLancom(ctx, r, &s)
+		s.CollectedAt = time.Now()
+		s.Duration = time.Since(start).Round(100 * time.Millisecond).String()
+		return s
+	}
 	if versionOut != "" {
 		s.Raw["version"] = versionOut
 	}

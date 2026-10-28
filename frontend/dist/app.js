@@ -737,8 +737,10 @@ async function exportConfig() {
 }
 
 function tabConsole(d) {
-  return `<section class="panel"><h2>Run a command<span class="grow"></span><span class="faint" style="font-weight:400;font-size:13px">Read-only: show, ping and traceroute</span></h2><div class="body">
-    <form class="row" onsubmit="runCmd(event)" style="align-items:center"><input type="text" id="cmd" class="mono" placeholder="show interfaces brief" autocomplete="off" spellcheck="false" onkeydown="cmdHistory(event)"><span style="flex:none"><button class="btn primary" id="runbtn">Run</button></span></form>
+  // LANCOM's CLI is menus: the menu goes in front of its show command
+  const lancom = (d.snapshot?.family || d.family) === "lancom";
+  return `<section class="panel"><h2>Run a command<span class="grow"></span><span class="faint" style="font-weight:400;font-size:13px">${lancom ? "Read-only: a menu and its show command" : "Read-only: show, ping and traceroute"}</span></h2><div class="body">
+    <form class="row" onsubmit="runCmd(event)" style="align-items:center"><input type="text" id="cmd" class="mono" placeholder="${lancom ? "vlan show vlan" : "show interfaces brief"}" autocomplete="off" spellcheck="false" onkeydown="cmdHistory(event)"><span style="flex:none"><button class="btn primary" id="runbtn">Run</button></span></form>
     <div style="height:12px"></div><pre class="code mono console-out" id="cmdout">${esc(S.consoleOut || "Output appears here.")}</pre></div></section>`;
 }
 
@@ -914,7 +916,7 @@ function credOptions(sel, kind = "") {
 }
 const sshCreds = () => S.creds.filter((c) => !c.kind);
 const cloudCreds = () => S.creds.filter((c) => c.kind === "instanton");
-const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"]];
+const FAMILIES = [["auto", "Detect automatically"], ["aos-cx", "AOS-CX"], ["aos-s", "AOS-S / ProCurve"], ["lancom", "LANCOM GS-2300 / GS-1300 (LCOS SX 3)"]];
 const BULK_FAMILIES = [...FAMILIES, ["instant-on", "Instant On (web interface, port 443)"]];
 const SWITCH_TYPES = [...FAMILIES, ["instant-on", "Instant On (web interface)"]];
 

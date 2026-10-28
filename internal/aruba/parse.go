@@ -85,7 +85,9 @@ func IsCLIError(out string) bool {
 	l := strings.ToLower(out)
 	return strings.Contains(l, "invalid input") || strings.Contains(l, "unknown command") ||
 		strings.Contains(l, "% invalid") || strings.Contains(l, "command not found") ||
-		strings.Contains(l, "incomplete input") || strings.Contains(l, "ambiguous input")
+		strings.Contains(l, "incomplete input") || strings.Contains(l, "ambiguous input") ||
+		strings.Contains(l, "invalid parameter") || strings.Contains(l, "wrong parameter") ||
+		strings.Contains(l, "invalid command") || strings.Contains(l, "unrecognized command")
 }
 
 // NormMAC turns any MAC notation into aa:bb:cc:dd:ee:ff. Returns "" if not a MAC.
@@ -112,6 +114,8 @@ func DetectFamily(showVersion, banner string) Family {
 	t := showVersion + "\n" + banner
 	l := strings.ToLower(t)
 	switch {
+	case lancomBanner(t):
+		return FamilyLancom
 	case strings.Contains(l, "arubaos-cx") || strings.Contains(l, "aos-cx") || cxVersionRe.MatchString(t):
 		return FamilyAOSCX
 	case strings.Contains(l, "instant on") || strings.Contains(l, "instanton") ||

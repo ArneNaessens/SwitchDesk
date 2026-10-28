@@ -92,9 +92,10 @@ HPE only offers firmware downloads after you sign in, so you fill the library yo
 |---|---|---|
 | AOS-CX | 6000, 6100, 6200, 6300, 6400, 8xxx | Full |
 | AOS-S / ProCurve | 2530 (YA/YB), 2540, 2930F/M, 3810, 5400R | Full |
+| LANCOM | GS-2300 and GS-1300 series on LCOS SX 3.x (tested on a GS-2326P+ with 3.34) | Reads ports, PoE, VLANs, spanning tree, LLDP, management settings and logs over SSH. VLAN changes use `tag-group`, `pvid` and `egress-rule`. They aren't tested on a switch yet, so try them on a spare VLAN first. LCOS SX 3 has no running-config listing, so the Config tab shows the settings menus' `show` output, with RADIUS/TACACS+ secrets masked. Firmware updates stay on the switch's web page. |
 | Instant On | 1830, 1930, 1960 | Read-only. Local management: read through the switch's web interface with its admin login (ports, PoE where the model has it, spanning tree, LLDP, VLANs, hardware, logs). Cloud management: read from the Instant On portal with your Instant On account. Changes stay on the switch's web page or in the Instant On app. |
 
-AOS-CX and AOS-S switches only need SSH, plus LLDP if you want the map. Instant On switches need nothing on the switch. Locally managed ones are read through their web interface; cloud-managed ones through the Instant On portal, with an account that has two-step verification turned off (a separate view-only account works best).
+AOS-CX, AOS-S and LANCOM switches only need SSH, plus LLDP if you want the map. Instant On switches need nothing on the switch. Locally managed ones are read through their web interface; cloud-managed ones through the Instant On portal, with an account that has two-step verification turned off (a separate view-only account works best).
 
 If your model isn't listed or reads wrong, open an [issue](https://github.com/jaba0x/SwitchDesk/issues/new) with the model number, its firmware version and the output of `show version`. When a reading fails, paste the message SwitchDesk shows too. It names the command or page that failed.
 

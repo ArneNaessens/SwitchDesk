@@ -143,8 +143,11 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 	sec := snap.Security
 	if sec.TelnetEnabled {
 		fix := "Disable with: no telnet-server"
-		if snap.Family == aruba.FamilyAOSCX {
+		switch snap.Family {
+		case aruba.FamilyAOSCX:
 			fix = "Disable with: no telnet-server vrf <vrf>"
+		case aruba.FamilyLancom:
+			fix = "LCOS SX has no CLI command to turn it off; limit Telnet/SSH to your management hosts in the access menu, or turn Telnet off on the switch's web page."
 		}
 		seen := "The switch accepts connections on TCP port 23. "
 		if sec.TelnetPort == "" {
@@ -152,12 +155,16 @@ func evaluate(sw store.Switch, st *Status, snap *aruba.Snapshot, set store.Setti
 		}
 		add(Critical, "Security", "Telnet is enabled", seen+"Credentials travel in clear text. "+fix)
 	}
-	if snap.Family == aruba.FamilyAOSS && sec.HTTPPlain {
+	if (snap.Family == aruba.FamilyAOSS || snap.Family == aruba.FamilyLancom) && sec.HTTPPlain {
 		seen := "The switch answers on TCP port 80. "
 		if sec.HTTPPort == "" {
 			seen = ""
 		}
-		add(Warning, "Security", "Plain HTTP web management is enabled", seen+"Use web-management ssl and disable plaintext.")
+		fix := "Use web-management ssl and disable plaintext."
+		if snap.Family == aruba.FamilyLancom {
+			fix = "Turn on the HTTPS redirect (https menu: redirect enable) or turn HTTP off on the switch's web page."
+		}
+		add(Warning, "Security", "Plain HTTP web management is enabled", seen+fix)
 	}
 	if sec.SNMPDefault && !set.IgnoreSNMP {
 		add(Critical, "Security", "Default SNMP community in use", "Community \"public\" or \"private\" is configured.")

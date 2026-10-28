@@ -725,12 +725,21 @@ func (m *Manager) withSession(id string, timeout time.Duration, fn func(ctx cont
 
 // RunCommand executes one read-only command from the console.
 func (m *Manager) RunCommand(id, cmd string) (string, error) {
-	if !aruba.ReadOnlyAllowed(cmd) {
+	sw, _ := m.st.Switch(id)
+	if m.family(id, sw) == aruba.FamilyLancom {
+		if !aruba.LancomReadOnly(cmd) {
+			return "", errors.New(`on LANCOM switches type a menu and its show command, e.g. "vlan show vlan" or "system show"`)
+		}
+	} else if !aruba.ReadOnlyAllowed(cmd) {
 		return "", errors.New("only show, ping and traceroute commands are allowed in the console")
 	}
 	var out string
-	err := m.withSession(id, 2*time.Minute, func(ctx context.Context, s *sshx.Session, _ aruba.Family) error {
+	err := m.withSession(id, 2*time.Minute, func(ctx context.Context, s *sshx.Session, fam aruba.Family) error {
 		var err error
+		if fam == aruba.FamilyLancom {
+			out, err = aruba.RunLancom(ctx, s, cmd, 90*time.Second)
+			return err
+		}
 		out, err = s.Run(ctx, cmd, 90*time.Second)
 		return err
 	})
@@ -749,10 +758,14 @@ func (m *Manager) PreviewVLAN(id string, ch aruba.VLANChange) ([]string, error) 
 	}
 	m.mu.Lock()
 	var cur []aruba.VLAN
+	var ports []aruba.Port
 	if s := m.snaps[id]; s != nil {
-		cur = s.VLANs
+		cur, ports = s.VLANs, s.Ports
 	}
 	m.mu.Unlock()
+	if fam == aruba.FamilyLancom {
+		return aruba.BuildLancomVLANCommands(ch, cur, ports)
+	}
 	return aruba.BuildVLANCommands(fam, ch, cur)
 }
 

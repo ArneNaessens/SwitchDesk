@@ -9,6 +9,9 @@ const (
 	FamilyAOSS      Family = "aos-s"
 	FamilyAOSCX     Family = "aos-cx"
 	FamilyInstantOn Family = "instant-on"
+	// FamilyLancom is LANCOM's GS-2300 / GS-1300 series on LCOS SX 3.x, whose
+	// CLI is a tree of menus rather than Aruba's flat command set.
+	FamilyLancom Family = "lancom"
 )
 
 func (f Family) Label() string {
@@ -19,6 +22,8 @@ func (f Family) Label() string {
 		return "AOS-CX"
 	case FamilyInstantOn:
 		return "Instant On"
+	case FamilyLancom:
+		return "LANCOM"
 	}
 	return "Unknown"
 }
