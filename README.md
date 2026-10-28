@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.9.5-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.6-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@ Every morning I want to know the same things about the switch network: is everyt
 ## Features
 
 ### Dashboard
-Online and offline counts, a problem list sorted by severity, and every switch drawn as a faceplate with one LED per port. Green is up, grey is down, amber means spanning tree is blocking it.
+Online and offline counts, a problem list sorted by severity, and every switch drawn as a faceplate with one LED per port. Green is up, grey is down, a slashed outline is disabled, amber means spanning tree is blocking it.
 
 ### Problems it catches
 

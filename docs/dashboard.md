@@ -11,7 +11,9 @@ The top line counts switches that are online, offline and disabled, plus critica
 - green: link up
 - grey: link down
 - amber: blocked by spanning tree
-- outlined: port disabled
+- outlined with a slash: port disabled on the switch
+
+A key above the faceplates shows what each LED means. Where some ports are disabled, the port count says so, for example "12/48 · 3 disabled".
 
 Hover an LED for the port number, speed, VLAN and description.
 

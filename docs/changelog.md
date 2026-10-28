@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.6
+
+- **Disabled ports look different from ports that are down.** On the faceplates a disabled port is now an outline with a slash, and a key explains the colours. The ports table has one Status column (Up, Down or Disabled), and port counts read like "12/48 · 3 disabled". Contributed by [Arne Naessens](https://github.com/ArneNaessens) in [#8](https://github.com/jaba0x/SwitchDesk/pull/8).
+- Fixed: AOS-S switches that name their time server with `ntp server-name`, such as the J9774A and J9775A, were reported as having no NTP server. Contributed by [Arne Naessens](https://github.com/ArneNaessens) in [#12](https://github.com/jaba0x/SwitchDesk/pull/12), reported by [@new-it](https://github.com/new-it) in [#11](https://github.com/jaba0x/SwitchDesk/issues/11).
+
 ## 0.9.5
 
 - Fixed: with a big firmware folder, or files in it that aren't switch images, the window could stay blank at startup. SwitchDesk read every file in the folder before the window could load, and read files it didn't recognise again on every start. Now it starts from the saved list of images and looks at the folder in the background. Files it can't recognise are remembered and skipped until they change. Thanks to [@aw-glaronia](https://github.com/aw-glaronia) for finding that clearing the firmware folder helped, and to [@Y4nnickB](https://github.com/Y4nnickB) for the report ([#7](https://github.com/jaba0x/SwitchDesk/issues/7)).
