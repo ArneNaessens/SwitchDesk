@@ -162,6 +162,10 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 	}
 
 	edges := map[string]*Edge{}
+	// links already found between two switches, in the order found, so a
+	// second report of the same link is matched without scanning every link
+	// (that scan made the dashboard take seconds with a few hundred switches)
+	byPair := map[[2]string][]string{}
 	for _, in := range infos {
 		if in.snap == nil {
 			continue
@@ -206,8 +210,10 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 			key := a + "|" + pa + "|" + b + "|" + pb
 			// if the other side already reported this link with a different
 			// remote-port spelling, merge on the port we know is exact
+			pair := [2]string{a, b}
 			if _, ok := edges[key]; !ok {
-				for k, e := range edges {
+				for _, k := range byPair[pair] {
+					e := edges[k]
 					if (e.From == in.sw.ID && e.To == to && e.FromPort == nb.LocalPort) || (e.To == in.sw.ID && e.From == to && e.ToPort == nb.LocalPort) {
 						key = k
 						break
@@ -217,8 +223,9 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 			// a side that didn't say its port (the Instant On portal never
 			// does) still merges with a report that did
 			if _, ok := edges[key]; !ok {
-				for k, e := range edges {
-					if e.From == a && e.To == b && (e.FromPort == pa || e.FromPort == "" || pa == "") && (e.ToPort == pb || e.ToPort == "" || pb == "") {
+				for _, k := range byPair[pair] {
+					e := edges[k]
+					if (e.FromPort == pa || e.FromPort == "" || pa == "") && (e.ToPort == pb || e.ToPort == "" || pb == "") {
 						key = k
 						break
 					}
@@ -228,6 +235,7 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 			if !ok {
 				e = &Edge{ID: key, From: a, To: b, FromPort: pa, ToPort: pb, Up: true}
 				edges[key] = e
+				byPair[pair] = append(byPair[pair], key)
 			}
 			if e.FromPort == "" {
 				e.FromPort = pa

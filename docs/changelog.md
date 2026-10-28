@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.9
+
+- Fixed: with a few hundred switches, the window could stay empty after a restart once every switch had been read ([#7](https://github.com/jaba0x/SwitchDesk/issues/7)). Measured with 284 fully read switches:
+  - The window no longer waits for the saved data. It opens at once and says "Loading saved data… 120 of 284 switches" while the rest comes in.
+  - Saved data loads about twice as fast. The raw command output, the bulk of each switch's file, is now read only when you open that switch's **Raw output** tab.
+  - The dashboard and the network map are about 15 times faster to build (0.16 s instead of 2–3 s). Matching up links between switches used to compare every link with every other.
+  - If the first load is ever slow, the window says "Loading the dashboard…" instead of staying empty.
+
+  Thanks to [@Y4nnickB](https://github.com/Y4nnickB) for the report and the screenshot.
+
 ## 0.9.8
 
 - Fixed: switches whose hostname has a character such as `+`, `&`, `/`, a space or an umlaut couldn't be read. SwitchDesk didn't recognise their prompt and stopped with "no CLI prompt within 20s". Reported by [@MarcelW85](https://github.com/MarcelW85) and [@new-it](https://github.com/new-it) in [#10](https://github.com/jaba0x/SwitchDesk/issues/10).

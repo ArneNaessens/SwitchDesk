@@ -51,24 +51,55 @@ type Manager struct {
 	queue chan string
 	ctx   context.Context
 	stop  context.CancelFunc
+
+	// saved snapshots are read in the background so the window can open at
+	// once; loaded is closed when they're all in (issue #7)
+	loaded      chan struct{}
+	loadPending int
 }
 
 func New(st *store.Store, notify func(string)) *Manager {
-	m := &Manager{st: st, notify: notify, status: map[string]*Status{}, snaps: map[string]*aruba.Snapshot{}, locks: map[string]*sync.Mutex{}, queue: make(chan string, 1024)}
+	m := &Manager{st: st, notify: notify, status: map[string]*Status{}, snaps: map[string]*aruba.Snapshot{}, locks: map[string]*sync.Mutex{}, queue: make(chan string, 1024), loaded: make(chan struct{})}
 	m.up.queue = make(chan *Job, 512)
 	if lib, err := firmware.OpenLibrary(filepath.Join(st.Dir(), "firmware")); err == nil {
 		m.lib = lib
 	}
-	for _, sw := range st.Switches() {
+	sws := st.Switches()
+	for _, sw := range sws {
 		m.status[sw.ID] = &Status{}
-		if s, ok := st.LoadSnapshot(sw.ID); ok {
-			snap := s
-			m.snaps[sw.ID] = &snap
-			m.status[sw.ID].LastCollect = s.CollectedAt
-		}
 	}
+	m.loadPending = len(sws)
+	go m.loadSaved(sws)
 	return m
 }
+
+// loadSaved reads the snapshots saved by the last run. A switch that was
+// read again in the meantime keeps its newer data.
+func (m *Manager) loadSaved(sws []store.Switch) {
+	defer close(m.loaded)
+	last := time.Now()
+	for _, sw := range sws {
+		s, ok := m.st.LoadSnapshotLite(sw.ID)
+		m.mu.Lock()
+		if ok && m.snaps[sw.ID] == nil {
+			snap := s
+			m.snaps[sw.ID] = &snap
+			if st := m.status[sw.ID]; st != nil && st.LastCollect.IsZero() {
+				st.LastCollect = s.CollectedAt
+			}
+		}
+		m.loadPending--
+		m.mu.Unlock()
+		if time.Since(last) > time.Second {
+			m.changed() // show what's in so far
+			last = time.Now()
+		}
+	}
+	m.changed()
+}
+
+// WaitLoaded blocks until the saved snapshots are loaded.
+func (m *Manager) WaitLoaded() { <-m.loaded }
 
 func (m *Manager) changed() {
 	if m.notify != nil {
@@ -263,7 +294,13 @@ func shortErr(err error) string {
 // ---------- collection ----------
 
 func (m *Manager) scheduleLoop() {
-	// first pass shortly after start so the UI fills in
+	// first pass shortly after start so the UI fills in, once the saved
+	// data is in (otherwise every switch would look never read)
+	select {
+	case <-m.ctx.Done():
+		return
+	case <-m.loaded:
+	}
 	select {
 	case <-m.ctx.Done():
 		return
@@ -535,6 +572,8 @@ type Dashboard struct {
 	Switches   []SwitchView   `json:"switches"`
 	Families   map[string]int `json:"families"`
 	DataDir    string         `json:"dataDir"`
+	// Loading counts switches whose saved data is still being read at startup.
+	Loading int `json:"loading,omitempty"`
 }
 
 func summarize(snap *aruba.Snapshot) *Summary {
@@ -616,6 +655,9 @@ func (m *Manager) views() ([]SwitchView, []switchInfo, map[string]*aruba.Snapsho
 func (m *Manager) Dashboard() Dashboard {
 	vs, infos, snaps, names := m.views()
 	d := Dashboard{Switches: vs, Families: map[string]int{}, DataDir: m.st.Dir()}
+	m.mu.Lock()
+	d.Loading = m.loadPending
+	m.mu.Unlock()
 	for _, v := range vs {
 		d.Total++
 		switch {
@@ -672,6 +714,12 @@ func (m *Manager) Detail(id string) (Detail, error) {
 			m.mu.Lock()
 			snap := m.snaps[id]
 			m.mu.Unlock()
+			if snap != nil && snap.Raw == nil {
+				// loaded without raw output at startup; read it for this page
+				full := *snap
+				full.Raw = m.st.LoadRaw(id)
+				snap = &full
+			}
 			backups := m.st.Backups(id)
 			if backups == nil {
 				backups = []store.Backup{}

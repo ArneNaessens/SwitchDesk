@@ -643,6 +643,43 @@ func (s *Store) SaveSnapshot(id string, snap aruba.Snapshot) error {
 	return os.WriteFile(filepath.Join(s.dir, "snapshots", id+".json"), b, 0o600)
 }
 
+// skipJSON drops a field while decoding without building it.
+type skipJSON struct{}
+
+func (*skipJSON) UnmarshalJSON([]byte) error { return nil }
+
+// LoadSnapshotLite reads a saved snapshot without its raw command output,
+// which is most of the file and is only shown on the switch's own page.
+func (s *Store) LoadSnapshotLite(id string) (aruba.Snapshot, bool) {
+	var w struct {
+		aruba.Snapshot
+		Raw skipJSON `json:"raw"`
+	}
+	if !validID(id) {
+		return aruba.Snapshot{}, false
+	}
+	b, err := os.ReadFile(filepath.Join(s.dir, "snapshots", id+".json"))
+	if err != nil || json.Unmarshal(b, &w) != nil {
+		return aruba.Snapshot{}, false
+	}
+	return w.Snapshot, true
+}
+
+// LoadRaw reads only the raw command output of a saved snapshot.
+func (s *Store) LoadRaw(id string) map[string]string {
+	var w struct {
+		Raw map[string]string `json:"raw"`
+	}
+	if !validID(id) {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(s.dir, "snapshots", id+".json"))
+	if err != nil || json.Unmarshal(b, &w) != nil {
+		return nil
+	}
+	return w.Raw
+}
+
 func (s *Store) LoadSnapshot(id string) (aruba.Snapshot, bool) {
 	var snap aruba.Snapshot
 	if !validID(id) {

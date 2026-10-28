@@ -195,6 +195,7 @@ function renderDashboard() {
   main.innerHTML = `<div class="page">
     <div class="head"><h1>Dashboard</h1><span class="grow"></span>
       <button class="btn" onclick="refreshAll(this)">${ICON.refresh}Collect now</button></div>
+    ${d.loading ? `<div class="panel" style="padding:10px 14px;margin-bottom:14px" role="status">Loading saved data… ${d.total - d.loading} of ${d.total} switches</div>` : ""}
     <div class="fleet">
       <div class="fleet-line">
         <span class="stat" data-go="#/switches"><span class="big">${d.online}</span><span class="lbl">online</span></span>
@@ -1663,7 +1664,9 @@ async function start() {
   const plat = await call("Platform");
   if (plat === "darwin") document.documentElement.style.setProperty("--top", "22px");
   S.settings = await call("GetSettings");
-  S.dash = await call("GetDashboard");
+  // never leave the window empty without a word if the first load is slow
+  const slow = setTimeout(() => { $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Loading the dashboard…</h3></div></div>`; }, 2000);
+  S.dash = await call("GetDashboard").finally(() => clearTimeout(slow));
   window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
   window.runtime?.EventsOn?.("firmware-download", (p) => { if (FW.dl) { FW.dl = p; drawDl(); } });
   window.runtime?.EventsOn?.("update-available", showUpdate);
