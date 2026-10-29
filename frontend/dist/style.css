@@ -369,3 +369,9 @@ dl.kv dd { margin: 0; user-select: text; word-break: break-word; }
 .ifilter .searchbox input { width: 100%; }
 .ifilter select { width: auto; max-width: 220px; }
 .ifilter #icount { font-size: 12.5px; white-space: nowrap; }
+.copyv { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.copyv > span { user-select: text; }
+.copyv button { display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; opacity: .35; }
+.copyv button svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+tr:hover .copyv button, .copyv button:focus-visible { opacity: 1; }
+.copyv button:hover { background: var(--panel-2); color: var(--text); }

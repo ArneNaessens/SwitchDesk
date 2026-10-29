@@ -37,6 +37,7 @@ func commandsFor(f Family) []command {
 			{key: "psu", cmd: "show environment power-supply"},
 			{key: "temp", cmd: "show environment temperature"},
 			{key: "logs", cmd: "show events -r -n 60", alt: []string{"show logging -r -n 60"}},
+			{key: "paclients", cmd: PortClientsCmd, alt: []string{"show port-access clients"}},
 			{key: "config", cmd: "show running-config", t: 90 * time.Second},
 		}
 	case FamilyInstantOn:
@@ -168,6 +169,10 @@ func parseInto(s *Snapshot) {
 	case FamilyAOSCX:
 		cfgVLANs, s.Security, cfgSTP = ParseConfigCX(raw["config"])
 		s.PortAccess = ParsePortAccessCX(raw["config"])
+		if s.PortAccess != nil {
+			s.PortAccess.Clients, s.PortAccess.ClientsRead = ParsePortClients(raw["paclients"])
+			s.PortAccess.ClientsAt = time.Now()
+		}
 	case FamilyInstantOn:
 		// Instant On has no Telnet server and its config isn't AOS-S syntax
 		cfgVLANs, s.Security, cfgSTP = ParseConfigAOSS(raw["config"])

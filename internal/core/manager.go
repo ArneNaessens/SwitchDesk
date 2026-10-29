@@ -841,6 +841,38 @@ func (m *Manager) ApplyPortAccess(id string, ch aruba.PortAccessChange) (aruba.A
 	return res, nil
 }
 
+// RefreshPortClients reads who is on the ports now, without a full collection.
+func (m *Manager) RefreshPortClients(id string) ([]aruba.PortClient, error) {
+	var out string
+	err := m.withSession(id, time.Minute, func(ctx context.Context, s *sshx.Session, fam aruba.Family) error {
+		if fam != aruba.FamilyAOSCX {
+			return errors.New("the client list is only available on AOS-CX switches")
+		}
+		var err error
+		if out, err = s.Run(ctx, aruba.PortClientsCmd, 45*time.Second); err == nil && aruba.IsCLIError(out) {
+			out, err = s.Run(ctx, "show port-access clients", 45*time.Second)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	clients, ok := aruba.ParsePortClients(out)
+	if !ok {
+		return nil, errors.New("the switch didn't accept show port-access clients")
+	}
+	m.mu.Lock()
+	if s := m.snaps[id]; s != nil && s.PortAccess != nil {
+		next, pa := *s, *s.PortAccess
+		pa.Clients, pa.ClientsRead, pa.ClientsAt = clients, true, time.Now()
+		next.PortAccess = &pa
+		m.snaps[id] = &next
+	}
+	m.mu.Unlock()
+	m.changed()
+	return clients, nil
+}
+
 // TestConnection is used by the "Add switch" dialog.
 func (m *Manager) TestConnection(sw store.Switch) (string, error) {
 	if sw.Cloud != nil {

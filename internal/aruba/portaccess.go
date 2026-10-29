@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RadiusServer is one RADIUS server from the running-config. The shared
@@ -137,6 +138,11 @@ type PortAccess struct {
 	Dot1xOn   bool       `json:"dot1xOn"`
 	MacAuthOn bool       `json:"macAuthOn"`
 	Ports     []PortAuth `json:"ports"`
+	// Clients is who is on the ports right now (AOS-CX only). ClientsRead says
+	// the switch answered, so an empty list really means nobody.
+	Clients     []PortClient `json:"clients,omitempty"`
+	ClientsRead bool         `json:"clientsRead"`
+	ClientsAt   time.Time    `json:"clientsAt"`
 }
 
 type portAuthSet struct {
@@ -866,7 +872,8 @@ func MaskSecret(lines []string, c PortAccessChange) []string {
 // AfterPortAccess returns the port-access setup as it should be once c has
 // been accepted, so the UI shows the change before the switch is read again.
 func AfterPortAccess(cur PortAccess, c PortAccessChange) PortAccess {
-	next := PortAccess{Dot1xOn: cur.Dot1xOn, MacAuthOn: cur.MacAuthOn, Servers: []RadiusServer{}, Roles: []PortRole{}}
+	next := PortAccess{Dot1xOn: cur.Dot1xOn, MacAuthOn: cur.MacAuthOn, Servers: []RadiusServer{}, Roles: []PortRole{},
+		Clients: cur.Clients, ClientsRead: cur.ClientsRead, ClientsAt: cur.ClientsAt}
 	added := false
 	for _, r := range cur.Roles {
 		switch {

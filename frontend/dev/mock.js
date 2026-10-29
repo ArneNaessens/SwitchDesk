@@ -172,6 +172,7 @@ password manager`;
       ch.clientLimit !== null && ch.clientLimit !== undefined ? `aaa port-access authenticator ${ch.ports.join(",")} client-limit ${ch.clientLimit}` : null,
       "end", ch.save ? "write memory" : null].filter(Boolean),
     ApplyPortAccess: async () => ({ ok: true, transcript: ["> configure terminal", "> aaa port-access authenticator 8", "> end"] }),
+    RefreshPortClients: async () => [{ port: "1/1/15", mac: "00:0c:29:9b:cc:d0", user: "jdoe", ip: "10.3.0.21", method: "dot1x", status: "Authenticated", role: "RoleLan", roleStatus: "Applied", vlan: "10" }],
     RunCommand: async (id, c) => "  Status and Counters - VLAN Information\n\n  VLAN ID Name     | Status\n  1       DEFAULT  | Port-based",
     RefreshAll: async () => {}, Refresh: async () => {},
     DataFolder: async () => ({ path: "/Users/jaba/Library/Application Support/SwitchDesk", defaultPath: "/Users/jaba/Library/Application Support/SwitchDesk", custom: false }),

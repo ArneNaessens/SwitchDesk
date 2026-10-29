@@ -34,7 +34,23 @@ const ICON = {
   chip: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg>',
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
 };
+
+// copyText prefers the Wails clipboard: the web view's own clipboard API
+// isn't available on every platform.
+async function copyText(text) {
+  try {
+    if (window.runtime?.ClipboardSetText) {
+      if (!(await window.runtime.ClipboardSetText(text))) throw new Error();
+    } else await navigator.clipboard.writeText(text);
+    toast(`Copied ${text}`);
+  } catch {
+    toast("Couldn't copy to the clipboard", true);
+  }
+}
+// a value with a copy button; the click doesn't reach the row behind it
+const copyable = (v) => `<span class="copyv"><span>${esc(v)}</span><button type="button" title="Copy ${esc(v)}" onclick="event.stopPropagation();copyText('${esc(v)}')">${ICON.copy}</button></span>`;
 
 function toast(text, err) {
   const t = document.createElement("div");
@@ -903,7 +919,7 @@ function tabAccess(d, snap) {
   if (!pa) return `<section class="panel"><div class="empty"><h3>Port access isn't available here</h3><p>802.1X and MAC authentication are managed on AOS-S and AOS-CX switches over SSH.${snap.family === "aos-s" || snap.family === "aos-cx" ? " Collect this switch again to read its setup." : ""}</p></div></section>`;
   const cx = snap.family === "aos-cx";
   const all = paPorts(snap);
-  if (S.paFor !== d.id) { S.paFor = d.id; S.paSel = new Set(); }
+  if (S.paFor !== d.id) { S.paFor = d.id; S.paSel = new Set(); S.paq = ""; }
   for (const p of S.paSel) if (!all.includes(p)) S.paSel.delete(p);
   const by = Object.fromEntries((pa.ports || []).map((a) => [a.port, a]));
   const info = Object.fromEntries((snap.ports || []).map((p) => [p.name, p]));
@@ -913,9 +929,11 @@ function tabAccess(d, snap) {
   const open = all.length - pa.ports.length;
   const glob = (on) => (on ? `<span class="sev okchip">On for the switch</span>` : `<span class="sev warning">Off for the switch</span>`);
   const stat = (v, l, sub, cls = "") => `<div class="pastat"><div class="v ${cls}">${v}</div><div class="l">${l}</div><div class="s">${sub}</div></div>`;
+  const onPort = {};
+  for (const c of pa.clients || []) onPort[c.port] = (onPort[c.port] || 0) + 1;
   const tile = (p) => {
     const a = by[p], up = info[p]?.up;
-    const tip = `Port ${p}${a ? `: ${[a.dot1x && "802.1X", a.macAuth && "MAC authentication"].filter(Boolean).join(" + ")}` : ": no login asked"}${infra[p] ? `, connects to ${infra[p]}` : ""}${info[p] && !up ? ", link down" : ""}${info[p]?.description ? " (" + info[p].description + ")" : ""}`;
+    const tip = `Port ${p}${a ? `: ${[a.dot1x && "802.1X", a.macAuth && "MAC authentication"].filter(Boolean).join(" + ")}` : ": no login asked"}${onPort[p] ? `, ${plural(onPort[p], "client")}` : ""}${infra[p] ? `, connects to ${infra[p]}` : ""}${info[p] && !up ? ", link down" : ""}${info[p]?.description ? " (" + info[p].description + ")" : ""}`;
     return `<button type="button" class="pp pa ${paClass(a)}${S.paSel.has(p) ? " sel" : ""}${infra[p] ? " infra" : ""}${info[p] && !up ? " down" : ""}" data-p="${esc(p)}" title="${esc(tip)}">${esc(p)}<sup>${paBadge(a) || "&nbsp;"}</sup></button>`;
   };
   const onoff = (v) => (v ? `<span class="sev okchip">On</span>` : `<span class="faint">–</span>`);
@@ -944,7 +962,70 @@ function tabAccess(d, snap) {
           ${cx ? `<td>${roleTags(a) || `<span class="faint">–</span>`}</td>` : `<td class="mono">${a.unauthVlan || `<span class="faint">–</span>`}</td>`}
           <td class="${info[a.port]?.up ? "ok" : "faint"}">${info[a.port] ? (info[a.port].up ? "Up" : "Down") : ""}</td><td>${esc(info[a.port]?.description || "")}</td></tr>`).join("")}</tbody></table>`
       : `<div class="empty" style="padding:18px;border-top:1px solid var(--line-soft)">No port asks for a login yet. Select ports above and turn on 802.1X or MAC authentication.</div>`}
-    </section>`;
+    </section>
+    ${cx ? clientsPanel(snap, pa) : ""}`;
+}
+
+// ---------- connected clients (AOS-CX show port-access clients) ----------
+const METHOD = { dot1x: "802.1X", "mac-auth": "MAC auth", "device-profile": "Device profile", "port-security": "Port security" };
+function clientStatus(s) {
+  const t = (s || "").toLowerCase();
+  const cls = /success|authenticated|authorized|applied/.test(t) && !/unauth|not /.test(t) ? "okchip" : /progress|pending|held|connecting/.test(t) ? "info" : t ? "critical" : "";
+  return t ? `<span class="sev ${cls}">${esc(s)}</span>` : `<span class="faint">–</span>`;
+}
+function clientVLAN(c, snap) {
+  if (!c.vlan && !c.tagged) return `<span class="faint">–</span>`;
+  const name = (snap.vlans || []).find((v) => String(v.id) === c.vlan)?.name || "";
+  return `${c.vlan ? `<span class="mono">${esc(c.vlan)}</span>${name ? ` <span class="faint">${esc(name)}</span>` : ""}` : ""}${c.tagged ? `<span class="vlk">Tagged</span><span class="mono">${esc(c.tagged)}</span>` : ""}`;
+}
+function clientsPanel(snap, pa) {
+  const cs = pa.clients || [];
+  const t = cs.length > 5 ? (S.paq || "").trim().toLowerCase() : ""; // the filter box only shows above 5
+  const head = `<h2>Connected clients&nbsp;<span class="faint" style="font-weight:400">${cs.length}</span><span class="grow"></span>
+    <span class="faint" style="font-size:12.5px;font-weight:400">Read ${ago(pa.clientsAt)}</span>
+    ${cs.length > 5 ? `<span class="searchbox" style="font-weight:400">${ICON.search}<input type="text" id="paq" placeholder="Filter clients" value="${esc(S.paq || "")}" oninput="paFilter(this.value)" style="width:200px"></span>` : ""}
+    <button class="btn small" id="pacref" onclick="refreshPortClients()">${ICON.refresh}Refresh</button></h2>`;
+  if (!pa.clientsRead) return `<section class="panel" style="margin-top:16px">${head}<div class="empty" style="padding:22px"><h3>Clients weren't read</h3><p>The switch didn't answer <span class="mono">show port-access clients</span> at the last collection. Click Refresh to try again.</p></div></section>`;
+  if (!cs.length) return `<section class="panel" style="margin-top:16px">${head}<div class="empty" style="padding:22px"><h3>No clients</h3><p>Nobody is logged in on a port with 802.1X or MAC authentication right now.</p></div></section>`;
+  const rows = [...cs].sort((a, b) => a.port.localeCompare(b.port, undefined, { numeric: true }) || a.mac.localeCompare(b.mac))
+    .map((c) => [c, [c.port, c.mac, c.user, c.ip, METHOD[c.method] || c.method, c.status, c.role, c.vlan].join(" ").toLowerCase()]);
+  const hit = (q) => !t || q.includes(t);
+  return `<section class="panel" style="margin-top:16px">${head}
+    <table id="pactab"><thead><tr><th>Port</th><th>Device</th><th>IP address</th><th>Login</th><th>Status</th><th>Role</th><th>VLAN</th><th>Connected</th></tr></thead><tbody>
+    ${rows.map(([c, q]) => `<tr data-q="${esc(q)}"${hit(q) ? "" : ` style="display:none"`}>
+      <td class="mono">${esc(c.port)}</td>
+      <td><span class="mono">${copyable(c.mac)}</span>${c.user && c.user !== c.mac ? `<div class="faint" style="font-size:12.5px">${esc(c.user)}</div>` : ""}</td>
+      <td class="mono">${esc(c.ip || "")}</td>
+      <td>${esc(METHOD[c.method] || c.method || "")}</td>
+      <td>${clientStatus(c.status)}</td>
+      <td>${c.role ? `<span class="mono">${esc(c.role)}</span>${c.roleStatus && !/applied/i.test(c.roleStatus) ? ` <span class="sev warning" title="Role status">${esc(c.roleStatus)}</span>` : ""}` : `<span class="faint">–</span>`}</td>
+      <td>${clientVLAN(c, snap)}</td>
+      <td class="faint">${esc(c.session || "")}</td></tr>`).join("")}</tbody></table>
+    <div class="empty" id="pacnone" style="padding:14px;${rows.some(([, q]) => hit(q)) ? "display:none" : ""}">No client matches the filter.</div></section>`;
+}
+// filters rows in place, so typing doesn't re-render the page and lose focus
+function paFilter(q) {
+  S.paq = q;
+  const t = q.trim().toLowerCase();
+  let shown = 0;
+  for (const r of $$("#pactab tbody tr")) {
+    const on = !t || r.dataset.q.includes(t);
+    r.style.display = on ? "" : "none";
+    shown += on;
+  }
+  const none = $("#pacnone");
+  if (none) none.style.display = shown ? "none" : "";
+}
+async function refreshPortClients() {
+  const b = $("#pacref");
+  if (b) { b.disabled = true; b.lastChild.textContent = "Reading…"; }
+  try {
+    await call("RefreshPortClients", S.detail.id);
+    await loadDetail(S.detail.id, true);
+  } catch (e) {
+    toast(e.message, true);
+    if (b) { b.disabled = false; b.lastChild.textContent = "Refresh"; }
+  }
 }
 
 // A role's VLANs as the switch knows them. The access or native VLAN may be
