@@ -167,12 +167,16 @@ func parseInto(s *Snapshot) {
 	switch s.Family {
 	case FamilyAOSCX:
 		cfgVLANs, s.Security, cfgSTP = ParseConfigCX(raw["config"])
+		s.PortAccess = ParsePortAccessCX(raw["config"])
 	case FamilyInstantOn:
 		// Instant On has no Telnet server and its config isn't AOS-S syntax
 		cfgVLANs, s.Security, cfgSTP = ParseConfigAOSS(raw["config"])
 		s.Security.TelnetEnabled, s.Security.HTTPPlain = false, false
 	default:
 		cfgVLANs, s.Security, cfgSTP = ParseConfigAOSS(raw["config"])
+		if s.Family == FamilyAOSS {
+			s.PortAccess = ParsePortAccessAOSS(raw["config"])
+		}
 	}
 	if !s.STP.Known && raw["config"] != "" {
 		s.STP.Known = true

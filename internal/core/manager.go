@@ -785,6 +785,62 @@ func (m *Manager) ApplyVLAN(id string, ch aruba.VLANChange) (aruba.ApplyResult, 
 	return res, nil
 }
 
+func (m *Manager) portAccessCommands(id string, ch aruba.PortAccessChange) ([]string, error) {
+	sw, ok := m.st.Switch(id)
+	if !ok {
+		return nil, errors.New("switch not found")
+	}
+	fam := m.family(id, sw)
+	m.mu.Lock()
+	var cur *aruba.PortAccess
+	if s := m.snaps[id]; s != nil {
+		cur = s.PortAccess
+	}
+	m.mu.Unlock()
+	if fam == "" || cur == nil {
+		return nil, errors.New("collect data from this switch first")
+	}
+	return aruba.BuildPortAccessCommands(fam, ch, *cur)
+}
+
+// PreviewPortAccess returns the CLI lines a port-access change would send, with the shared secret hidden.
+func (m *Manager) PreviewPortAccess(id string, ch aruba.PortAccessChange) ([]string, error) {
+	cmds, err := m.portAccessCommands(id, ch)
+	return aruba.MaskSecret(cmds, ch), err
+}
+
+// ApplyPortAccess sends the change, then re-collects the switch.
+func (m *Manager) ApplyPortAccess(id string, ch aruba.PortAccessChange) (aruba.ApplyResult, error) {
+	cmds, err := m.portAccessCommands(id, ch)
+	if err != nil {
+		return aruba.ApplyResult{}, err
+	}
+	var res aruba.ApplyResult
+	err = m.withSession(id, 3*time.Minute, func(ctx context.Context, s *sshx.Session, _ aruba.Family) error {
+		res = aruba.ApplyCommands(ctx, s, cmds)
+		return nil
+	})
+	// the switch echoes what it gets, so the secret is in the transcript too
+	res.Transcript = aruba.MaskSecret(res.Transcript, ch)
+	res.Error = strings.Join(aruba.MaskSecret([]string{res.Error}, ch), "")
+	if err != nil {
+		return res, err
+	}
+	if res.OK {
+		m.mu.Lock()
+		if s := m.snaps[id]; s != nil && s.PortAccess != nil {
+			next := *s
+			pa := aruba.AfterPortAccess(*s.PortAccess, ch)
+			next.PortAccess = &pa
+			m.snaps[id] = &next
+		}
+		m.mu.Unlock()
+		m.changed()
+	}
+	go m.Enqueue(id)
+	return res, nil
+}
+
 // TestConnection is used by the "Add switch" dialog.
 func (m *Manager) TestConnection(sw store.Switch) (string, error) {
 	if sw.Cloud != nil {
