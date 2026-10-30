@@ -86,12 +86,25 @@ function leds(ports, stp, big, optics) {
     const rows = g.ports.length > 8 ? 2 : 1;
     const cells = g.ports.map((p) => {
       const cls = !p.enabled ? "x" : p.loop ? "l" : blocking.has(p.name) ? "b" : p.up ? "u" : "";
-      const tip = `Port ${p.name}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${opt[p.name]?.rx?.length ? `, Rx ${opt[p.name].rx.map(dbm).join("/")} dBm` : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}${p.description ? " (" + p.description + ")" : ""}`;
+      const tip = `Port ${p.name}${p.description ? " · " + p.description : ""}: ${!p.enabled ? "disabled" : p.up ? "up" : "down"}${p.speed ? " " + p.speed : ""}${p.vlan ? ", VLAN " + p.vlan : ""}${blocking.has(p.name) ? ", STP blocking" : ""}${p.loop ? ", loop detected" : ""}${opt[p.name]?.rx?.length ? `, Rx ${opt[p.name].rx.map(dbm).join("/")} dBm` : ""}${p.poeMw ? `, PoE ${(p.poeMw / 1000).toFixed(1)} W` : ""}${p.uplink ? ", uplink" : ""}`;
       return `<i class="${cls}" title="${esc(tip)}"></i>`;
     }).join("");
     return `<span class="ledgrp" style="--r:${rows}">${cells}</span>`;
   }).join("");
   return `<div class="leds${big ? " big" : ""}">${html}</div>`;
+}
+
+// what the faceplate colours mean
+function ledKey(ports) {
+  const k = [["u", "Up"], ["", "Down"], ["x", "Disabled"], ["b", "STP blocking"]];
+  if ((ports || []).some((p) => p.loop)) k.push(["l", "Loop"]);
+  return `<span class="ledkey">${k.map(([c, l]) => `<span><i class="${c}"></i>${l}</span>`).join("")}</span>`;
+}
+
+// "12/48", plus how many of the rest are disabled rather than down
+function portsUp(s) {
+  const off = (s.ports || []).filter((p) => !p.enabled).length;
+  return `${s.portsUp}/${s.portsTotal}${off ? ` <span class="faint" title="${plural(off, "port")} disabled on the switch">· ${off} disabled</span>` : ""}`;
 }
 
 // ---------- shell ----------
@@ -205,6 +218,7 @@ function renderDashboard() {
   main.innerHTML = `<div class="page">
     <div class="head"><h1>Dashboard</h1><span class="grow"></span>
       <button class="btn" onclick="refreshAll(this)">${ICON.refresh}Collect now</button></div>
+    ${d.loading ? `<div class="panel" style="padding:10px 14px;margin-bottom:14px" role="status">Loading saved data… ${d.total - d.loading} of ${d.total} switches</div>` : ""}
     <div class="fleet">
       <div class="fleet-line">
         <span class="stat" data-go="#/switches"><span class="big">${d.online}</span><span class="lbl">online</span></span>
@@ -225,7 +239,7 @@ function renderDashboard() {
         <div class="issues-scroll" id="issuelist"></div>
       </section>
       <section class="panel">
-        <h2>Switches<span class="grow"></span><a data-go="#/switches" class="muted" style="font-weight:400;font-size:13px">All switches</a></h2>
+        <h2>Switches<span class="grow"></span>${ledKey(d.switches.flatMap((v) => v.summary?.ports || []))}<span style="width:16px"></span><a data-go="#/switches" class="muted" style="font-weight:400;font-size:13px">All switches</a></h2>
         <div class="rack issues-scroll">${plates.map(plate).join("")}</div>
       </section>
     </div></div>`;
@@ -270,7 +284,7 @@ function plate(v) {
   return `<div class="plate${v.disabled ? " off" : ""}" data-go="#/switch/${v.id}">
     <div class="nm">${v.disabled ? `<span class="dot"></span>` : statusDot(v)}<b>${esc(name)}</b>${v.worst ? `<span class="sev ${v.worst}">${(v.issues || []).length}</span>` : ""}${v.status.collecting ? `<span class="faint" style="font-size:12px">collecting</span>` : ""}</div>
     <div class="meta">${meta}</div>
-    <div class="leds-wrap" style="grid-column:1/-1">${s?.ports?.length ? leds(s.ports, { ports: s.ports.filter((p) => p.blocking).map((p) => ({ port: p.name, state: "Blocking" })) }) : s ? `<div class="faint" style="font-size:12.5px">${esc(s.model || s.family)} ${s.portsTotal ? `· ${s.portsUp}/${s.portsTotal} ports up` : ""}</div>` : `<div class="faint" style="font-size:12.5px">No data collected yet</div>`}</div>
+    <div class="leds-wrap" style="grid-column:1/-1">${s?.ports?.length ? leds(s.ports, { ports: s.ports.filter((p) => p.blocking).map((p) => ({ port: p.name, state: "Blocking" })) }) : s ? `<div class="faint" style="font-size:12.5px">${esc(s.model || s.family)} ${s.portsTotal ? `· ${portsUp(s)} ports up` : ""}</div>` : `<div class="faint" style="font-size:12.5px">No data collected yet</div>`}</div>
   </div>`;
 }
 
@@ -312,7 +326,7 @@ function renderSwitches(soft) {
       <td>${esc(v.name || s.hostname || "")}${v.disabled ? ` <span class="tag">disabled</span>` : ""}</td><td class="mono">${esc(v.host)}</td><td>${esc(v.site)}</td>
       <td title="${esc(s.family || "")}">${esc(s.model || "")}</td><td class="mono">${esc(s.software || "")}</td><td>${fwCell(v)}</td>
       <td class="num">${s.cpu >= 0 && s.cpu !== undefined ? s.cpu + "%" : ""}</td><td class="num">${s.memory >= 0 && s.memory !== undefined ? s.memory + "%" : ""}</td>
-      <td class="num">${s.portsTotal ? `${s.portsUp}/${s.portsTotal}` : ""}</td><td>${esc(s.stpRole || "")}</td>
+      <td class="num">${s.portsTotal ? portsUp(s) : ""}</td><td>${esc(s.stpRole || "")}</td>
       <td>${v.worst ? `<span class="sev ${v.worst}">${(v.issues || []).length}</span>` : ""}</td><td class="faint">${v.status.collecting ? "now" : ago(s.collectedAt)}</td>
       <td class="acts nogo">${canUpdate(v) ? `<button class="ib" title="Update firmware to ${esc(v.firmware.available)}" onclick="openUpgradeDialog(['${v.id}'])">${ICON.up}</button>` : ""}<button class="ib" title="${v.disabled ? "Enable" : "Disable"}" onclick="setDisabled(['${v.id}'], ${!v.disabled})">${v.disabled ? ICON.play : ICON.pause}</button><button class="ib danger" title="Delete" onclick="deleteSwitches(['${v.id}'])">${ICON.trash}</button></td></tr>`;
     }).join("")}</tbody></table>
@@ -537,7 +551,7 @@ function tabOverview(d, snap) {
   const f = snap.facts, st = snap.stp, sec = snap.security, set = S.settings || { cpuWarn: 80, memWarn: 90 };
   const isS = snap.family === "aos-s";
   const env = snap.env || [];
-  return `${leds(snap.ports, st, true, snap.optics)}<div style="height:16px"></div>
+  return `${leds(snap.ports, st, true, snap.optics)}<div style="margin:8px 0 16px">${ledKey(snap.ports)}</div>
   <div class="grid2">
     <section class="panel"><h2>Problems on this switch</h2>
       ${d.issues?.length ? d.issues.map(issueRow).join("") : `<div class="empty" style="padding:22px"><h3>Nothing to fix</h3></div>`}</section>
@@ -593,10 +607,15 @@ function tabSTP(snap) {
 function tabPorts(snap) {
   const p = snap.ports || [];
   const memb = portVLANs(snap);
-  return `${leds(p, snap.stp, true, snap.optics)}<div style="height:16px"></div>${opticsPanel(snap)}<section class="panel">
-    <table><thead><tr><th>Port</th><th>Status</th><th>Enabled</th><th>Speed</th><th>Type</th><th>VLANs</th><th>Description</th></tr></thead><tbody>
-    ${p.map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="${x.up ? "ok" : "faint"}">${x.up ? "Up" : "Down"}</td><td>${x.enabled ? "Yes" : `<span class="warnc">No</span>`}</td>
-      <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td><td>${esc(x.description)}</td></tr>`).join("")}
+  // a disabled port is down too; say which, so a shut port isn't taken for a dead link
+  const state = (x) => (!x.enabled ? ["x", "Disabled", ""] : x.up ? ["u", "Up", "ok"] : ["", "Down", "faint"]);
+  return `${leds(p, snap.stp, true, snap.optics)}<div style="margin:8px 0 16px">${ledKey(p)}</div>${opticsPanel(snap)}<section class="panel">
+    <table><thead><tr><th>Port</th><th>Name</th><th>Status</th><th>Speed</th><th>Type</th><th>VLANs</th></tr></thead><tbody>
+    ${p.map((x) => {
+      const [c, label, cls] = state(x);
+      return `<tr><td class="mono">${esc(x.name)}</td><td>${esc(x.description)}</td><td class="${cls}"><span class="ledkey" style="color:inherit;font-size:inherit"><span><i class="${c}"></i>${label}</span></span></td>
+      <td>${esc(x.speed)}</td><td>${esc(x.type)}</td><td class="mono">${esc(memb[x.name] || x.vlan || "")}</td></tr>`;
+    }).join("")}
     </tbody></table></section>`;
 }
 
@@ -2108,7 +2127,9 @@ async function start() {
   const plat = await call("Platform");
   if (plat === "darwin") document.documentElement.style.setProperty("--top", "22px");
   S.settings = await call("GetSettings");
-  S.dash = await call("GetDashboard");
+  // never leave the window empty without a word if the first load is slow
+  const slow = setTimeout(() => { $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Loading the dashboard…</h3></div></div>`; }, 2000);
+  S.dash = await call("GetDashboard").finally(() => clearTimeout(slow));
   window.runtime?.EventsOn?.("changed", () => refreshData().catch(() => {}));
   window.runtime?.EventsOn?.("firmware-download", (p) => { if (FW.dl) { FW.dl = p; drawDl(); } });
   window.runtime?.EventsOn?.("update-available", showUpdate);

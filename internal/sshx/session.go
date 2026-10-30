@@ -54,8 +54,11 @@ type Session struct {
 var (
 	ansiCursor = regexp.MustCompile(`\x1b\[\d+;\d+[Hf]`)
 	ansiAny    = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-Za-z]|\x1b[=>78EDM]`)
-	promptRe   = regexp.MustCompile(`(?m)^([A-Za-z0-9_.\-]+)(\([^)]*\))?\s?[#>]\s*$`)
-	moreRe     = regexp.MustCompile(`(?i)-- ?more ?--|press any key|--more--`)
+	// The hostname may hold any visible character except the ones that end
+	// or decorate a prompt (# > ( ) <), and spaces inside it: AOS-S allows
+	// names like "SW-7191-HalleD+Anlage40" or "Halle 3 / Büro" (issue #10).
+	promptRe = regexp.MustCompile(`(?m)^([^\s#>()<](?:[^#>()<\r\n]*[^\s#>()<])?)(\([^)]*\))?\s?[#>]\s*$`)
+	moreRe   = regexp.MustCompile(`(?i)-- ?more ?--|press any key|--more--`)
 )
 
 // Clean strips terminal control sequences and normalises line endings.
@@ -347,7 +350,7 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 			answered = line
 		} else if s.isPrompt(tail) && strings.Count(clean, "\n") >= 1 {
 			if s.quiet(200 * time.Millisecond) {
-				return trimEcho(clean, cmd), nil
+				return s.trimEcho(clean, cmd), nil
 			}
 			continue
 		} else if isConfirm(tail) && line != answered {
@@ -357,10 +360,10 @@ func (s *Session) Run(ctx context.Context, cmd string, timeout time.Duration) (s
 			enterDue = time.Now().Add(confirmEnterAfter)
 		}
 		if err := s.wait(ctx, 300*time.Millisecond); err != nil {
-			return trimEcho(clean, cmd), err
+			return s.trimEcho(clean, cmd), err
 		}
 	}
-	return trimEcho(Clean(s.snapshot()), cmd), fmt.Errorf("timeout waiting for %q", cmd)
+	return s.trimEcho(Clean(s.snapshot()), cmd), fmt.Errorf("timeout waiting for %q", cmd)
 }
 
 var confirmRe = regexp.MustCompile(`(?i)(\(y/n\)|\[y/n\])\??\s*:?\s*$`)
@@ -371,7 +374,7 @@ var confirmEnterAfter = 1500 * time.Millisecond
 
 func isConfirm(tail string) bool { return confirmRe.MatchString(strings.TrimSpace(tail)) }
 
-func trimEcho(out, cmd string) string {
+func (s *Session) trimEcho(out, cmd string) string {
 	lines := strings.Split(strings.Trim(out, "\n"), "\n")
 	// drop echoed command (first line containing it)
 	for i := 0; i < len(lines) && i < 3; i++ {
@@ -380,8 +383,8 @@ func trimEcho(out, cmd string) string {
 			break
 		}
 	}
-	// drop trailing prompt
-	if n := len(lines); n > 0 && promptRe.MatchString(lines[n-1]) {
+	// drop trailing prompt (only this switch's, so output ending in # stays)
+	if n := len(lines); n > 0 && s.isPrompt(lines[n-1]) {
 		lines = lines[:n-1]
 	}
 	return strings.Trim(strings.Join(lines, "\n"), "\n")

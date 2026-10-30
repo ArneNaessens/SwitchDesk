@@ -11,7 +11,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1b212b?style=flat-square&logo=windows&logoColor=white">
   <img alt="Go" src="https://img.shields.io/badge/Go-1.23+-1b212b?style=flat-square&logo=go&logoColor=white">
   <img alt="Wails" src="https://img.shields.io/badge/Wails-v2-1b212b?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.9.5-4cc38a?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.9-4cc38a?style=flat-square">
 </p>
 
 <p align="center">
@@ -27,12 +27,12 @@
 
 ## Why
 
-Every morning I want to know the same things about the switch network: is everything up, did anything change overnight, is spanning tree still sane, and which port goes where. Clicking through web UIs one switch at a time is slow, and a full NMS is a lot to run for a few dozen switches. SwitchDesk reads the switches over plain SSH and keeps everything on your machine.
+Every morning I want to know the same things about the switch network: is everything up, did anything change overnight, is spanning tree still sane, and which port goes where. Clicking through web UIs one switch at a time is slow, and a full NMS is a lot to run for a few dozen switches. SwitchDesk reads the switches over plain SSH and keeps everything on your machine. It started with a few dozen switches and is used on networks of several hundred.
 
 ## Features
 
 ### Dashboard
-Online and offline counts, a problem list sorted by severity, and every switch drawn as a faceplate with one LED per port. Green is up, grey is down, amber means spanning tree is blocking it.
+Online and offline counts, a problem list sorted by severity, and every switch drawn as a faceplate with one LED per port. Green is up, grey is down, a slashed outline is disabled, amber means spanning tree is blocking it.
 
 ### Problems it catches
 
@@ -52,7 +52,7 @@ Online and offline counts, a problem list sorted by severity, and every switch d
   <img src="docs/switch.png" alt="Switch page" width="900">
 </p>
 
-System facts, a management-access checklist, spanning tree (bridge, root, port roles and states), ports with optical levels for SFPs, VLANs, LLDP and CDP neighbors, logs, the running config, and the raw output of every command it ran. Config copies are saved whenever the config changes, and any two can be compared side by side. A console runs `show`, `ping` and `traceroute`, and nothing else.
+System facts, a management-access checklist, spanning tree (bridge, root, port roles and states), ports with their configured names and optical levels for SFPs, VLANs, LLDP and CDP neighbors, logs, the running config, and the raw output of every command it ran. Config copies are saved whenever the config changes, and any two can be compared side by side. A console runs `show`, `ping` and `traceroute`, and nothing else.
 
 ### VLANs without the CLI
 Create, rename and delete VLANs, and set port membership by clicking ports through untagged, tagged and off. Before anything is sent you see the exact commands. Sending stops at the first line the switch rejects, and `write memory` only runs when every line before it went through.
@@ -152,7 +152,7 @@ Everything stays on your computer, in one folder.
 | Windows | `%AppData%\SwitchDesk` |
 
 - `inventory.json` holds switches, settings and map positions. Passwords are encrypted with AES-GCM using a key in `secret.key`, readable only by your user.
-- `snapshots/` keeps the last reading of each switch, so the app opens with data.
+- `snapshots/` keeps the last reading of each switch, so the app opens with data. It loads in the background, so the window opens straight away even with hundreds of switches.
 - `backups/` keeps a copy of a switch's running config each time it changes.
 
 To use another folder, go to Settings → Data → Change. You can move the data to another disk or a synced drive, copy it there, or open a folder that already has SwitchDesk data. The key moves with the folder, so the same folder works from any computer that can reach it.
@@ -200,6 +200,6 @@ Built by **Jaba Macharashvili**. More of my infra, homelab and hardware projects
 
 ## Credits
 
-Thanks to [Arne Naessens](https://github.com/ArneNaessens) for mass VLAN editing, and to everyone who reports issues.
+Thanks to [Arne Naessens](https://github.com/ArneNaessens) for mass VLAN editing, the disabled-port display and the `ntp server-name` fix, and to everyone who reports issues.
 
 Built with [Wails](https://wails.io). Fonts are [IBM Plex](https://github.com/IBM/plex), under the SIL Open Font License.

@@ -62,12 +62,15 @@ func serve(nc net.Conn, cfg *ssh.ServerConfig) {
 	}
 }
 
+// fakeHost is the fake switch's hostname; a test may change it.
+var fakeHost = "SW-TEST"
+
 func shell(ch ssh.Channel) {
 	defer ch.Close()
 	io.WriteString(ch, "\x1b[1;24r\x1b[24;1HHPE Switch 2930F\r\n\x1b[2KPress any key to continue\x1b[?25h")
 	b := make([]byte, 1)
 	ch.Read(b)
-	prompt := "\x1b[24;1H\x1b[2KSW-TEST# "
+	prompt := "\x1b[24;1H\x1b[2K" + fakeHost + "# "
 	io.WriteString(ch, "\x1b[2J"+prompt)
 	paging := true
 	var line []byte
@@ -127,6 +130,31 @@ func shell(ch ssh.Channel) {
 			io.WriteString(ch, "Invalid input: "+cmd+"\r\n")
 		}
 		io.WriteString(ch, prompt)
+	}
+}
+
+// Issue #10: a hostname with "+" has to work end to end.
+func TestSessionHostnameWithPlus(t *testing.T) {
+	fakeHost = "SW-7191-HalleD+Anlage40-70-39"
+	defer func() { fakeHost = "SW-TEST" }()
+	addr, stop := fakeSwitch(t)
+	defer stop()
+	host, port, _ := net.SplitHostPort(addr)
+	var p int
+	fmt.Sscan(port, &p)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	s, err := Dial(ctx, Options{Host: host, Port: p, Username: "manager", Password: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if s.Hostname != fakeHost {
+		t.Fatalf("hostname=%q", s.Hostname)
+	}
+	out, err := s.Run(ctx, "show system", 5*time.Second)
+	if err != nil || !strings.Contains(out, "CPU Util") || strings.Contains(out, fakeHost+"#") {
+		t.Fatalf("out=%q err=%v", out, err)
 	}
 }
 

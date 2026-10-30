@@ -201,6 +201,15 @@ func parseInto(s *Snapshot) {
 	}
 	s.VLANs = MergeVLANs(cfgVLANs, ParseVLANTable(raw["vlans"]))
 	s.Ports = ParseInterfacesBrief(raw["interfaces"])
+	// "show interfaces brief" has no port names on AOS-S and cuts them short
+	// on AOS-CX; the running config has them in full.
+	if names := PortNames(raw["config"]); len(names) > 0 {
+		for i := range s.Ports {
+			if n := names[s.Ports[i].Name]; n != "" {
+				s.Ports[i].Description = n
+			}
+		}
+	}
 	if o := raw["optics"]; o != "" && !IsCLIError(o) {
 		s.Optics = ParseOptics(o)
 	}
