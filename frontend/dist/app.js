@@ -1212,6 +1212,8 @@ function openPortAccessEditor() {
     ${ports.length > 1 ? `<div class="mono faint" style="font-size:12.5px;margin:-4px 0 12px;user-select:text">${esc(all.length === ports.length ? "All ports" : ports.join(", "))}</div>` : ""}
     <div class="pafield"><b>802.1X</b>${seg("dot1x")}<span class="now">${now("dot1x")}. Users and devices log in with their own account.</span></div>
     <div class="pafield"><b>MAC authentication</b>${seg("macAuth")}<span class="now">${now("macAuth")}. The device's MAC address is checked, for printers, phones and APs.</span></div>
+    <div id="paoptsoff" class="faint" style="font-size:13px;margin-top:14px"></div>
+    <div id="paopts">
     <div class="row" style="margin-top:16px">
       <label class="f"><span>Client limit</span><input type="number" id="palimit" min="0" max="${cx ? 256 : 32}" placeholder="Keep"></label>
       <label class="f"><span>Re-authentication</span><select id="pareauth"><option value="">Keep</option><option value="0">Off</option><option value="1800">Every 30 min</option><option value="3600">Every hour</option><option value="14400">Every 4 hours</option><option value="28800">Every 8 hours</option><option value="86400">Every 24 hours</option></select></label>
@@ -1221,15 +1223,34 @@ function openPortAccessEditor() {
     ${cx ? `<div class="pasub">Roles<span class="faint">Which role, and so which VLAN, a client gets in each situation</span></div>
       ${roles.length ? "" : `<div class="msg warnm" style="margin-bottom:10px">This switch has no roles yet. Create them under Roles on the Port access tab first.</div>`}
       <div class="rolegrid">${ROLE_SLOTS.map(([k, l]) => `<label class="f"><span>${l}</span><select data-role="${k}"><option value="__keep">${keepRole(k)}</option><option value="">None</option>${roles.map((r) => `<option value="${esc(r.name)}">${esc(r.name)}${roleVLANText(r, snap) ? " · " + esc(roleVLANText(r, snap)) : ""}</option>`).join("")}</select></label>`).join("")}</div>` : ""}
+    </div>
     <div id="pawarn" style="margin-top:12px"></div>
     <div style="height:10px"></div><label class="check"><input type="checkbox" id="pasave" checked> Save to startup config (write memory)</label>
     <div id="paerr"></div></div>
     <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="paprev">Review changes</button></div>`, true);
   const val = (k) => $(`.seg[data-k="${k}"] .on`, m).dataset.v;
+  // whether a port still asks for a login once the toggles are applied
+  const willAuth = (p) => (val("dot1x") === "" ? !!by[p]?.dot1x : val("dot1x") === "1") || (val("macAuth") === "" ? !!by[p]?.macAuth : val("macAuth") === "1");
+  // options only mean something on a port with a login, so they show once every selected port has one
+  const opts = () => {
+    const open = ports.filter((p) => !willAuth(p));
+    $("#paopts", m).style.display = open.length ? "none" : "";
+    $("#paoptsoff", m).textContent = !open.length ? ""
+      : open.length === ports.length ? `Turn on 802.1X or MAC authentication to set the client limit, re-authentication${cx ? " and roles" : " and unauthenticated VLAN"}.`
+      : `${open.length === 1 ? "Port" : "Ports"} ${compress(open)} ${open.length === 1 ? "doesn't" : "don't"} ask for a login. Turn 802.1X or MAC authentication on for every selected port to change the other options.`;
+    if (open.length) {
+      // hidden fields go back to Keep, so nothing unseen is sent
+      $("#palimit", m).value = "";
+      for (const s of $$("#paopts select", m)) s.selectedIndex = 0;
+    }
+  };
   const warn = () => {
     const turnOn = val("dot1x") === "1" || val("macAuth") === "1";
     const risky = ports.filter((p) => infra[p]);
     const w = [];
+    // AOS-CX keeps these on the interface; the backend removes them with the login
+    const cleared = cx ? ports.filter((p) => !willAuth(p) && (by[p]?.dot1x || by[p]?.macAuth) && (by[p]?.clientLimit || Object.keys(by[p]?.roles || {}).length)) : [];
+    if (cleared.length) w.push(`<div class="msg warnm">${cleared.length === 1 ? "Port" : "Ports"} <b>${esc(compress(cleared))}</b> will no longer ask for a login, so the roles and client limit set there are removed too.</div>`);
     if (turnOn && risky.length) w.push(`<div class="msg warnm"><b>${esc(risky.map((p) => `${p} (${infra[p]})`).join(", "))}</b> ${risky.length === 1 ? "links" : "link"} to another switch or access point. A login on ${risky.length === 1 ? "that port" : "those ports"} can cut the link, and with it SwitchDesk's own connection.</div>`);
     if (turnOn && !(pa.servers || []).length) w.push(`<div class="msg warnm">No RADIUS server is set, so nobody on these ports will be able to log in. Add a server first.</div>`);
     $("#pawarn", m).innerHTML = w.join("");
@@ -1238,8 +1259,10 @@ function openPortAccessEditor() {
     const b = e.target.closest(".seg button");
     if (!b) return;
     b.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    opts();
     warn();
   });
+  opts();
   $("#paprev", m).onclick = async () => {
     const tri = (k) => (val(k) === "" ? null : val(k) === "1");
     const num = (v) => (v === "" || v === undefined ? null : +v);

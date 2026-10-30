@@ -293,6 +293,30 @@ func TestBuildPortAccessCX(t *testing.T) {
 	}
 }
 
+func TestBuildPortAccessCXOffClearsRoles(t *testing.T) {
+	cur := PortAccess{Dot1xOn: true, MacAuthOn: true, Roles: []PortRole{{Name: "RoleLan"}, {Name: "RoleGuest"}},
+		Ports: []PortAuth{{Port: "1/1/3", Dot1x: true, MacAuth: true, ClientLimit: 4, Roles: map[string]string{"auth-role": "RoleLan", "reject-role": "RoleGuest"}}}}
+	// MAC authentication still uses the roles
+	got, _ := BuildPortAccessCommands(FamilyAOSCX, PortAccessChange{Ports: []string{"1/1/3"}, Dot1x: ptr(false)}, cur)
+	want := []string{"configure terminal", "interface 1/1/3", "no aaa authentication port-access dot1x authenticator", "exit", "end"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("dot1x off:\n%s", strings.Join(got, "\n"))
+	}
+	got, _ = BuildPortAccessCommands(FamilyAOSCX, PortAccessChange{Ports: []string{"1/1/3"}, Dot1x: ptr(false), MacAuth: ptr(false)}, cur)
+	want = []string{"configure terminal", "interface 1/1/3",
+		"no aaa authentication port-access dot1x authenticator", "no aaa authentication port-access mac-auth",
+		"no aaa authentication port-access auth-role", "no aaa authentication port-access reject-role",
+		"no aaa authentication port-access client-limit", "exit", "end"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("both off:\n%s", strings.Join(got, "\n"))
+	}
+	// the port stays free of the role, so the role can be deleted afterwards
+	after := AfterPortAccess(cur, PortAccessChange{Ports: []string{"1/1/3"}, Dot1x: ptr(false), MacAuth: ptr(false)})
+	if len(after.Ports) != 0 {
+		t.Errorf("after: %+v", after.Ports)
+	}
+}
+
 func TestBuildPortAccessGlobal(t *testing.T) {
 	on := PortAccess{Dot1xOn: true, MacAuthOn: true, Ports: []PortAuth{{Port: "1", Dot1x: true}}}
 	off := PortAccess{}

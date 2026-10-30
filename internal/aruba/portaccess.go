@@ -885,6 +885,19 @@ func cxPorts(c PortAccessChange, cur PortAccess) []string {
 				cmds = append(cmds, "no aaa authentication port-access "+k)
 			}
 		}
+		// A port that no longer asks for any login drops its roles and client
+		// limit too: they'd do nothing, and nothing on screen would show them.
+		// validate() makes sure this change doesn't set them at the same time.
+		if !a.Dot1x && !a.MacAuth {
+			for _, k := range RoleKinds {
+				if a.Roles[k] != "" {
+					cmds = append(cmds, "no aaa authentication port-access "+k)
+				}
+			}
+			if a.ClientLimit != 0 {
+				cmds = append(cmds, "no aaa authentication port-access client-limit")
+			}
+		}
 		cmds = append(cmds, "exit")
 	}
 	return cmds
