@@ -421,7 +421,20 @@ type PortAccessChange struct {
 	// SetRole creates an AOS-CX role, or changes the one with that name.
 	SetRole    *PortRole `json:"setRole"`
 	DeleteRole string    `json:"deleteRole"`
-	Save       bool      `json:"save"`
+	// GlobalDot1x and GlobalMacAuth turn a method on or off for the whole
+	// switch. AOS-S has no switch-wide setting for MAC authentication.
+	GlobalDot1x   *bool `json:"globalDot1x"`
+	GlobalMacAuth *bool `json:"globalMacAuth"`
+	Save          bool  `json:"save"`
+}
+
+// globalWant is the switch-wide state after a change: set outright, or
+// turned on because ports are given the method.
+func globalWant(global, port *bool, cur bool) bool {
+	if global != nil {
+		return *global
+	}
+	return cur || (port != nil && *port)
 }
 
 var hostLabel = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
@@ -542,8 +555,11 @@ func (c PortAccessChange) validate(f Family, cur PortAccess) error {
 	if f != FamilyAOSS && f != FamilyAOSCX {
 		return fmt.Errorf("port access can only be changed on AOS-S and AOS-CX switches")
 	}
-	if c.AddServer == nil && c.RemoveServer == "" && c.SetRole == nil && c.DeleteRole == "" && !c.portFields() {
+	if c.AddServer == nil && c.RemoveServer == "" && c.SetRole == nil && c.DeleteRole == "" && c.GlobalDot1x == nil && c.GlobalMacAuth == nil && !c.portFields() {
 		return fmt.Errorf("nothing to change")
+	}
+	if c.GlobalMacAuth != nil && f != FamilyAOSCX {
+		return fmt.Errorf("AOS-S has no switch-wide setting for MAC authentication; it's turned on per port")
 	}
 	if err := c.validateRoles(f, cur); err != nil {
 		return err
@@ -697,9 +713,24 @@ func aossPortAccess(c PortAccessChange, cur PortAccess) []string {
 	if c.RemoveServer != "" {
 		cmds = append(cmds, "no radius-server host "+c.RemoveServer)
 	}
-	if !c.portFields() {
-		return cmds
+	on := globalWant(c.GlobalDot1x, c.Dot1x, cur.Dot1xOn)
+	if on && !cur.Dot1xOn {
+		cmds = append(cmds, "aaa authentication port-access eap-radius")
 	}
+	if c.portFields() {
+		cmds = append(cmds, aossPorts(c, cur)...)
+	}
+	switch {
+	case on && !cur.Dot1xOn:
+		cmds = append(cmds, "aaa port-access authenticator active")
+	case !on && cur.Dot1xOn:
+		cmds = append(cmds, "no aaa port-access authenticator active")
+	}
+	return cmds
+}
+
+func aossPorts(c PortAccessChange, cur PortAccess) []string {
+	var cmds []string
 	ports := CompressPorts(c.Ports)
 	var dot1xPorts, macPorts []string
 	for _, a := range c.after(cur) {
@@ -709,10 +740,6 @@ func aossPortAccess(c PortAccessChange, cur PortAccess) []string {
 		if a.MacAuth {
 			macPorts = append(macPorts, a.Port)
 		}
-	}
-	turnOn := c.Dot1x != nil && *c.Dot1x && !cur.Dot1xOn
-	if turnOn {
-		cmds = append(cmds, "aaa authentication port-access eap-radius")
 	}
 	if c.Dot1x != nil {
 		if *c.Dot1x {
@@ -754,10 +781,20 @@ func aossPortAccess(c PortAccessChange, cur PortAccess) []string {
 	}
 	opts("authenticator", "client-limit", dot1xPorts)
 	opts("mac-based", "addr-limit", macPorts)
-	if turnOn {
-		cmds = append(cmds, "aaa port-access authenticator active")
-	}
 	return cmds
+}
+
+const cxDot1x, cxMac = "aaa authentication port-access dot1x authenticator", "aaa authentication port-access mac-auth"
+
+// cxGlobal uses the context form, the way the running-config shows it.
+func cxGlobal(kw string, want, cur bool) []string {
+	switch {
+	case want && !cur:
+		return []string{kw, "enable", "exit"}
+	case !want && cur:
+		return []string{kw, "no enable", "exit"}
+	}
+	return nil
 }
 
 func cxPortAccess(c PortAccessChange, cur PortAccess) []string {
@@ -796,6 +833,8 @@ func cxPortAccess(c PortAccessChange, cur PortAccess) []string {
 			cmds = append(cmds, "exit")
 		}
 	}
+	cmds = append(cmds, cxGlobal(cxDot1x, globalWant(c.GlobalDot1x, c.Dot1x, cur.Dot1xOn), cur.Dot1xOn)...)
+	cmds = append(cmds, cxGlobal(cxMac, globalWant(c.GlobalMacAuth, c.MacAuth, cur.MacAuthOn), cur.MacAuthOn)...)
 	if c.portFields() {
 		cmds = append(cmds, cxPorts(c, cur)...)
 	}
@@ -807,13 +846,7 @@ func cxPortAccess(c PortAccessChange, cur PortAccess) []string {
 
 func cxPorts(c PortAccessChange, cur PortAccess) []string {
 	var cmds []string
-	if c.Dot1x != nil && *c.Dot1x && !cur.Dot1xOn {
-		cmds = append(cmds, "aaa authentication port-access dot1x authenticator enable")
-	}
-	if c.MacAuth != nil && *c.MacAuth && !cur.MacAuthOn {
-		cmds = append(cmds, "aaa authentication port-access mac-auth enable")
-	}
-	const dot1x, mac = "aaa authentication port-access dot1x authenticator", "aaa authentication port-access mac-auth"
+	const dot1x, mac = cxDot1x, cxMac
 	for _, a := range c.after(cur) {
 		cmds = append(cmds, "interface "+a.Port)
 		switch {
@@ -895,12 +928,8 @@ func AfterPortAccess(cur PortAccess, c PortAccessChange) PortAccess {
 	if s := c.AddServer; s != nil {
 		next.Servers = append(next.Servers, RadiusServer{Host: s.Host, VRF: s.VRF, HasKey: true})
 	}
-	if c.Dot1x != nil && *c.Dot1x {
-		next.Dot1xOn = true
-	}
-	if c.MacAuth != nil && *c.MacAuth {
-		next.MacAuthOn = true
-	}
+	next.Dot1xOn = globalWant(c.GlobalDot1x, c.Dot1x, cur.Dot1xOn)
+	next.MacAuthOn = globalWant(c.GlobalMacAuth, c.MacAuth, cur.MacAuthOn)
 	var set portAuthSet
 	for _, a := range cur.Ports {
 		*set.get(a.Port) = a

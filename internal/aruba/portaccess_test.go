@@ -270,8 +270,8 @@ func TestBuildPortAccessCX(t *testing.T) {
 	}
 	want := []string{
 		"configure terminal",
-		"aaa authentication port-access dot1x authenticator enable",
-		"aaa authentication port-access mac-auth enable",
+		"aaa authentication port-access dot1x authenticator", "enable", "exit",
+		"aaa authentication port-access mac-auth", "enable", "exit",
 		"interface 1/1/1",
 		"aaa authentication port-access dot1x authenticator", "enable", "reauth", "reauth-period 3600", "exit",
 		"aaa authentication port-access mac-auth", "enable", "exit",
@@ -290,6 +290,46 @@ func TestBuildPortAccessCX(t *testing.T) {
 	got, _ = BuildPortAccessCommands(FamilyAOSCX, PortAccessChange{AddServer: &RadiusServerChange{Host: "radius.example.com", Key: "k3y", VRF: "mgmt"}}, cur)
 	if got[1] != "radius-server host radius.example.com key plaintext k3y vrf mgmt" {
 		t.Fatalf("add: %v", got)
+	}
+}
+
+func TestBuildPortAccessGlobal(t *testing.T) {
+	on := PortAccess{Dot1xOn: true, MacAuthOn: true, Ports: []PortAuth{{Port: "1", Dot1x: true}}}
+	off := PortAccess{}
+	cases := []struct {
+		name string
+		f    Family
+		cur  PortAccess
+		c    PortAccessChange
+		want []string
+	}{
+		{"aos-s on", FamilyAOSS, off, PortAccessChange{GlobalDot1x: ptr(true)},
+			[]string{"aaa authentication port-access eap-radius", "aaa port-access authenticator active"}},
+		{"aos-s off", FamilyAOSS, on, PortAccessChange{GlobalDot1x: ptr(false)},
+			[]string{"no aaa port-access authenticator active"}},
+		{"cx dot1x off", FamilyAOSCX, on, PortAccessChange{GlobalDot1x: ptr(false)},
+			[]string{"aaa authentication port-access dot1x authenticator", "no enable", "exit"}},
+		{"cx mac on", FamilyAOSCX, off, PortAccessChange{GlobalMacAuth: ptr(true)},
+			[]string{"aaa authentication port-access mac-auth", "enable", "exit"}},
+		// turning a port on doesn't override an explicit switch-wide off
+		{"cx port on, global stays off", FamilyAOSCX, off, PortAccessChange{GlobalDot1x: ptr(false), Ports: []string{"1/1/2"}, MacAuth: ptr(true)},
+			[]string{"aaa authentication port-access mac-auth", "enable", "exit", "interface 1/1/2", "aaa authentication port-access mac-auth", "enable", "exit", "exit"}},
+	}
+	for _, tc := range cases {
+		got, err := BuildPortAccessCommands(tc.f, tc.c, tc.cur)
+		want := append(append([]string{"configure terminal"}, tc.want...), "end")
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v\n%s", tc.name, err, strings.Join(got, "\n"))
+		}
+	}
+	if _, err := BuildPortAccessCommands(FamilyAOSCX, PortAccessChange{GlobalDot1x: ptr(true)}, on); err == nil {
+		t.Error("turning on what is already on should be 'nothing changed'")
+	}
+	if _, err := BuildPortAccessCommands(FamilyAOSS, PortAccessChange{GlobalMacAuth: ptr(false)}, on); err == nil {
+		t.Error("AOS-S has no switch-wide MAC authentication")
+	}
+	if got := AfterPortAccess(on, PortAccessChange{GlobalDot1x: ptr(false)}); got.Dot1xOn || !got.MacAuthOn {
+		t.Errorf("after: %+v", got)
 	}
 }
 

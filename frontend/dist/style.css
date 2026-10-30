@@ -232,6 +232,8 @@ dl.kv dd { margin: 0; user-select: text; word-break: break-word; }
 .pastat .v { font-size: 26px; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .pastat .l { color: var(--muted); font-size: 13px; }
 .pastat .s { font-size: 12.5px; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* a card with a button wraps instead of cutting the button off */
+.pastat .s:has(.btn) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow: visible; }
 .pp.pa { position: relative; min-width: 52px; height: 38px; flex-direction: column; gap: 0; line-height: 1.15; }
 .pp.pa sup { font-size: 9px; letter-spacing: .03em; opacity: .85; }
 .pp.pa:hover { border-color: var(--accent); }

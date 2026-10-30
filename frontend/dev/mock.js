@@ -170,6 +170,7 @@ password manager`;
       ch.dot1x === true ? `aaa port-access authenticator ${ch.ports.join(",")}` : ch.dot1x === false ? `no aaa port-access authenticator ${ch.ports.join(",")}` : null,
       ch.macAuth === true ? `aaa port-access mac-based ${ch.ports.join(",")}` : ch.macAuth === false ? `no aaa port-access mac-based ${ch.ports.join(",")}` : null,
       ch.clientLimit !== null && ch.clientLimit !== undefined ? `aaa port-access authenticator ${ch.ports.join(",")} client-limit ${ch.clientLimit}` : null,
+      ch.globalDot1x === true ? "aaa port-access authenticator active" : ch.globalDot1x === false ? "no aaa port-access authenticator active" : null,
       "end", ch.save ? "write memory" : null].filter(Boolean),
     ApplyPortAccess: async () => ({ ok: true, transcript: ["> configure terminal", "> aaa port-access authenticator 8", "> end"] }),
     RefreshPortClients: async () => [{ port: "1/1/15", mac: "00:0c:29:9b:cc:d0", user: "jdoe", ip: "10.3.0.21", method: "dot1x", status: "Authenticated", role: "RoleLan", roleStatus: "Applied", vlan: "10" }],

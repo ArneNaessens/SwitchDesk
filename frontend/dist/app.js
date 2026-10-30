@@ -868,11 +868,16 @@ function deleteVLAN(id) {
   call("PreviewVLAN", S.detail.id, ch).then((cmds) => confirmCommands(ch, cmds)).catch((e) => toast(e.message, true));
 }
 
-function confirmCommands(ch, cmds, method = "ApplyVLAN") {
+// note is optional HTML shown as a warning above the commands.
+function confirmCommands(ch, cmds, method = "ApplyVLAN", note = "") {
   const name = S.detail.name || S.detail.summary?.hostname || S.detail.host;
-  const apply = ch.action === "delete" ? "Delete VLAN" : ch.removeServer ? "Remove server" : ch.deleteRole ? "Delete role" : "Apply to switch";
-  const m = modal(`<h2>${ch.action === "delete" ? `Delete VLAN ${ch.id}` : ch.removeServer ? `Remove RADIUS server ${esc(ch.removeServer)}` : ch.deleteRole ? `Delete role ${esc(ch.deleteRole)}` : "Review changes"}</h2><div class="body">
+  const glob = ch.globalDot1x ?? ch.globalMacAuth;
+  const apply = ch.action === "delete" ? "Delete VLAN" : ch.removeServer ? "Remove server" : ch.deleteRole ? "Delete role" : glob !== undefined ? (glob ? "Turn on" : "Turn off") : "Apply to switch";
+  const title = ch.action === "delete" ? `Delete VLAN ${ch.id}` : ch.removeServer ? `Remove RADIUS server ${esc(ch.removeServer)}` : ch.deleteRole ? `Delete role ${esc(ch.deleteRole)}`
+    : glob !== undefined ? `Turn ${ch.globalDot1x !== undefined ? "802.1X" : "MAC authentication"} ${glob ? "on" : "off"} for the switch` : "Review changes";
+  const m = modal(`<h2>${title}</h2><div class="body">
     <p class="muted" style="margin-top:0">These lines will be sent to <b style="color:var(--text)">${esc(name)}</b>. Sending stops at the first line the switch rejects${ch.save ? ", and nothing is saved to startup config in that case" : ""}.</p>
+    ${note ? `<div class="msg warnm" style="margin-bottom:10px">${note}</div>` : ""}
     <pre class="code mono" id="vtx">${esc(cmds.join("\n"))}</pre><div id="vres"></div></div>
     <div class="foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="vapply">${apply}</button></div>`, true);
   $("#vapply", m).onclick = async () => {
@@ -927,7 +932,8 @@ function tabAccess(d, snap) {
   const servers = pa.servers || [];
   const n1x = pa.ports.filter((a) => a.dot1x).length, nmac = pa.ports.filter((a) => a.macAuth).length;
   const open = all.length - pa.ports.length;
-  const glob = (on) => (on ? `<span class="sev okchip">On for the switch</span>` : `<span class="sev warning">Off for the switch</span>`);
+  const glob = (on, kind) => `${on ? `<span class="sev okchip">On for the switch</span>` : `<span class="sev warning">Off for the switch</span>`}
+    <button class="btn small" onclick="paGlobal('${kind}', ${!on})">${on ? "Turn off" : "Turn on"}</button>`;
   const stat = (v, l, sub, cls = "") => `<div class="pastat"><div class="v ${cls}">${v}</div><div class="l">${l}</div><div class="s">${sub}</div></div>`;
   const onPort = {};
   for (const c of pa.clients || []) onPort[c.port] = (onPort[c.port] || 0) + 1;
@@ -939,8 +945,8 @@ function tabAccess(d, snap) {
   const onoff = (v) => (v ? `<span class="sev okchip">On</span>` : `<span class="faint">–</span>`);
   return `<div class="pastats">
       ${stat(servers.length, plural(servers.length, "RADIUS server").replace(/^\d+ /, ""), servers.length ? `<span class="faint">${esc(servers.map((s) => s.host).join(", "))}</span>` : `<span class="warnc">Nobody can log in without one</span>`, servers.length ? "" : "warnc")}
-      ${stat(n1x, "Ports with 802.1X", n1x || !pa.dot1xOn ? glob(pa.dot1xOn) : `<span class="faint">Users log in with their own account</span>`)}
-      ${stat(nmac, "Ports with MAC authentication", cx && (nmac || !pa.macAuthOn) ? glob(pa.macAuthOn) : `<span class="faint">For printers, phones and APs</span>`)}
+      ${stat(n1x, "Ports with 802.1X", glob(pa.dot1xOn, "dot1x"))}
+      ${stat(nmac, "Ports with MAC authentication", cx ? glob(pa.macAuthOn, "mac") : `<span class="faint">Turned on per port</span>`)}
       ${stat(open, "Open ports", `<span class="faint">No login asked</span>`)}
     </div>
     <section class="panel" style="margin-bottom:16px"><h2>RADIUS servers<span class="grow"></span><button class="btn small primary" onclick="openRadiusEditor()">${ICON.plus}Add server</button></h2>
@@ -1279,6 +1285,20 @@ function openRadiusEditor() {
       $("#rerr", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
     }
   };
+}
+
+// paGlobal turns 802.1X or MAC authentication on or off for the whole switch.
+function paGlobal(kind, on) {
+  const pa = S.detail.snapshot.portAccess;
+  const label = kind === "dot1x" ? "802.1X" : "MAC authentication";
+  const ports = (pa.ports || []).filter((a) => (kind === "dot1x" ? a.dot1x : a.macAuth)).map((a) => a.port);
+  const ch = { [kind === "dot1x" ? "globalDot1x" : "globalMacAuth"]: on, save: true };
+  let note = "";
+  if (!on && ports.length) note = `${plural(ports.length, "port")} (${esc(compress(ports))}) stop checking logins with ${label}. Devices there may then reach the network without logging in. The port settings stay, and come back when you turn it on again.`;
+  else if (!on) note = `No port uses ${label} now, so nothing changes until a port is given it.`;
+  else if (!(pa.servers || []).length) note = `There's no RADIUS server yet, so no ${label} login can succeed. Add one first.`;
+  else if (!ports.length) note = `No port uses ${label} yet. Turn it on per port below to ask for a login.`;
+  call("PreviewPortAccess", S.detail.id, ch).then((cmds) => confirmCommands(ch, cmds, "ApplyPortAccess", note)).catch((e) => toast(e.message, true));
 }
 
 function removeRadius(host) {
